@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
-# Install a Linux release, or build from source before binaries are published.
+# Install a release binary (Linux or macOS), or build from source.
+#
+# Running this again is how you update: it always re-resolves `--version`
+# (default: `latest`) and overwrites the binary at `--prefix`.
 set -euo pipefail
 
 main() {
@@ -19,28 +22,44 @@ main() {
                 esac
                 shift 2 ;;
             --help|-h)
-                echo "Usage: bash install-linux.sh [--version vX.Y.Z] [--prefix DIR] [--source]"
+                echo "Usage: bash install.sh [--version TAG] [--prefix DIR] [--source]"
                 echo "Installs to ~/.local/bin by default. --source builds with Cargo."
+                echo "Re-run with no arguments any time to update to the latest release."
                 return ;;
             *) echo "error: unknown option: $1" >&2; return 1 ;;
         esac
     done
-    if [ "$(uname -s)" != Linux ]; then
-        echo "error: this installer supports Linux; see README.md for other platforms" >&2
-        return 1
-    fi
+    local os target
+    case "$(uname -s)" in
+        Linux) os=linux ;;
+        Darwin) os=macos ;;
+        *) echo "error: this installer supports Linux and macOS; see README.md for other platforms" >&2; return 1 ;;
+    esac
     local arch
     case "$(uname -m)" in
         x86_64|amd64) arch=x86_64 ;;
         aarch64|arm64) arch=aarch64 ;;
-        *) echo "error: supported Linux architectures are x86_64 and ARM64" >&2; return 1 ;;
+        *) echo "error: supported architectures are x86_64 and ARM64" >&2; return 1 ;;
     esac
-    if [[ "$version" != latest && ! "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][a-zA-Z0-9.-]+)?$ ]]; then
-        echo "error: version must be latest or a release tag such as v0.2.1" >&2
+    if [ "$os" = linux ]; then
+        target="${arch}-unknown-linux-gnu"
+    else
+        target="${arch}-apple-darwin"
+    fi
+    if [[ "$version" != latest && ! "$version" =~ ^(v[0-9]+\.[0-9]+\.[0-9]+([.-][a-zA-Z0-9.-]+)?|edge-[0-9]+-[0-9a-f]+)$ ]]; then
+        echo "error: version must be latest, a release tag such as v0.2.1, or an edge-N-<hash> tag" >&2
         return 1
     fi
+    local checksum_cmd
+    if command -v sha256sum >/dev/null; then
+        checksum_cmd=(sha256sum --check)
+    elif command -v shasum >/dev/null; then
+        checksum_cmd=(shasum -a 256 --check)
+    else
+        echo "error: sha256sum or shasum is required" >&2; return 1
+    fi
     local command
-    for command in curl tar sha256sum install mktemp; do
+    for command in curl tar install mktemp; do
         command -v "$command" >/dev/null || { echo "error: $command is required" >&2; return 1; }
     done
     local work
@@ -49,7 +68,7 @@ main() {
     trap 'exit 130' INT
     trap 'exit 143' TERM
 
-    local asset="claudetap-${arch}-unknown-linux-gnu.tar.gz"
+    local asset="claudetap-${target}.tar.gz"
     local base="https://github.com/$repo/releases"
     if [ "$version" = latest ]; then
         base="$base/latest/download"
@@ -57,17 +76,17 @@ main() {
         base="$base/download/$version"
     fi
     if [ "$source_only" = false ]; then
-        echo ">>> Downloading claudetap ($version, $arch)"
+        echo ">>> Downloading claudetap ($version, $target)"
         local status
         status=$(curl --proto '=https' --tlsv1.2 -sSL --retry 3 \
             -w '%{http_code}' -o "$work/$asset" "$base/$asset")
         if [ "$status" = 200 ]; then
             curl --proto '=https' --tlsv1.2 -fsSL --retry 3 \
                 "$base/$asset.sha256" -o "$work/$asset.sha256"
-            (cd "$work" && sha256sum --check "$asset.sha256")
+            (cd "$work" && "${checksum_cmd[@]}" "$asset.sha256")
             tar -xzf "$work/$asset" -C "$work" claudetap
             if ! "$work/claudetap" --version; then
-                echo "error: this binary needs a compatible glibc Linux system; retry with --source" >&2
+                echo "error: this binary won't run on this system; retry with --source" >&2
                 return 1
             fi
         elif [ "$status" = 404 ]; then
@@ -79,9 +98,14 @@ main() {
         fi
     fi
     if [ "$source_only" = true ]; then
-        if ! command -v cc >/dev/null || ! command -v cmake >/dev/null; then
+        if [ "$os" = linux ] && { ! command -v cc >/dev/null || ! command -v cmake >/dev/null; }; then
             echo "error: source builds require a C compiler and CMake." >&2
             echo "Ubuntu/Debian: sudo apt-get install -y build-essential cmake pkg-config ca-certificates" >&2
+            return 1
+        fi
+        if [ "$os" = macos ] && ! command -v cc >/dev/null; then
+            echo "error: source builds require a C compiler." >&2
+            echo "macOS: xcode-select --install" >&2
             return 1
         fi
         if ! command -v cargo >/dev/null; then

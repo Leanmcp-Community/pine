@@ -4,6 +4,7 @@ import io
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import tarfile
 import tempfile
@@ -28,12 +29,13 @@ class DistributionTests(unittest.TestCase):
         path.write_text(text)
         path.chmod(0o755)
 
-    def archive(self, arch, binary, version=VERSION):
-        path = self.work / f"claudetap-{arch}-unknown-linux-gnu.tar.gz"
+    def archive(self, arch, binary, version=VERSION, target=None):
+        target = target or f"{arch}-unknown-linux-gnu"
+        path = self.work / f"claudetap-{target}.tar.gz"
         with tarfile.open(path, "w:gz") as bundle:
             for name, data in {
                 "claudetap": binary,
-                "release.json": json.dumps({"version": version, "target": f"{arch}-unknown-linux-gnu"}).encode(),
+                "release.json": json.dumps({"version": version, "target": target}).encode(),
             }.items():
                 info = tarfile.TarInfo(name)
                 info.size = len(data)
@@ -46,7 +48,7 @@ class DistributionTests(unittest.TestCase):
         return subprocess.run(args, env=self.env, text=True, capture_output=True, cwd=ROOT)
 
     def setup_download(self):
-        self.executable(self.mocks / "uname", '#!/bin/sh\nif [ "$1" = -s ]; then echo Linux; else echo "${TEST_ARCH:-x86_64}"; fi\n')
+        self.executable(self.mocks / "uname", '#!/bin/sh\nif [ "$1" = -s ]; then echo "${TEST_OS:-Linux}"; else echo "${TEST_ARCH:-x86_64}"; fi\n')
         self.executable(self.mocks / "curl", '''#!/bin/bash
 set -eu
 out=""; status=false; url=""
@@ -73,10 +75,27 @@ if [ "$status" = true ]; then printf 200; fi
             self.env["TEST_ARCH"] = arch
             self.archive(arch, b'#!/bin/sh\necho "claudetap test"\n')
             prefix = self.work / f"install {arch}"
-            result = self.run_command("bash", "scripts/install-linux.sh", "--prefix", str(prefix))
+            result = self.run_command("bash", "scripts/install.sh", "--prefix", str(prefix))
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertTrue((prefix / "claudetap").is_file())
         self.assertFalse(list(self.work.glob("tmp.*")), "installer temporary directory leaked")
+
+    def test_installer_macos_uses_shasum_when_sha256sum_absent(self):
+        self.setup_download()
+        self.assertIsNotNone(shutil.which("shasum"), "test host needs shasum")
+        trimmed_path = os.pathsep.join(
+            d for d in os.environ["PATH"].split(os.pathsep)
+            if not (Path(d) / "sha256sum").exists()
+        )
+        self.env["PATH"] = f"{self.mocks}{os.pathsep}{trimmed_path}"
+        self.env["TEST_OS"] = "Darwin"
+        for arch in ("x86_64", "aarch64"):
+            self.env["TEST_ARCH"] = arch
+            self.archive(arch, b'#!/bin/sh\necho "claudetap test"\n', target=f"{arch}-apple-darwin")
+            prefix = self.work / f"install-macos-{arch}"
+            result = self.run_command("bash", "scripts/install.sh", "--prefix", str(prefix))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue((prefix / "claudetap").is_file())
 
     def test_bad_checksum_preserves_existing_install(self):
         self.setup_download()
@@ -86,14 +105,14 @@ if [ "$status" = true ]; then printf 200; fi
         prefix.mkdir()
         existing = prefix / "claudetap"
         existing.write_text("existing installation")
-        result = self.run_command("bash", "scripts/install-linux.sh", "--prefix", str(prefix))
+        result = self.run_command("bash", "scripts/install.sh", "--prefix", str(prefix))
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(existing.read_text(), "existing installation")
 
     def test_download_error_does_not_fall_back(self):
         self.setup_download()
         self.env["HTTP_STATUS"] = "403"
-        result = self.run_command("bash", "scripts/install-linux.sh")
+        result = self.run_command("bash", "scripts/install.sh")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("HTTP 403", result.stderr)
         self.assertNotIn("building from source", result.stdout)
@@ -115,7 +134,7 @@ printf '#!/bin/sh\\necho claudetap-source\\n' > "$2/bin/claudetap"
 chmod +x "$2/bin/claudetap"
 ''')
         prefix = self.work / "installed"
-        result = self.run_command("bash", "scripts/install-linux.sh", "--version", "v0.2.0", "--prefix", str(prefix))
+        result = self.run_command("bash", "scripts/install.sh", "--version", "v0.2.0", "--prefix", str(prefix))
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("claudetap-source", result.stdout)
 

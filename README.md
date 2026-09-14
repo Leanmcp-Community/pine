@@ -4,9 +4,10 @@ Local HTTPS MITM proxy that taps Claude Code traffic into `~/.claudetap`.
 
 ## Installation
 
-Claudetap is written in Rust. Install from source today using Cargo on Linux or
-macOS. This repository includes Linux binary release and npm publishing tools,
-but those tools do not mean that an npm package or release has been published.
+Claudetap is written in Rust. Prebuilt Linux and macOS binaries are published
+continuously from `main` (see below); you can also build from source with
+Cargo on either platform. This repository also includes npm publishing tools,
+but those do not mean an npm package has been published.
 
 ### From source (Linux and macOS)
 
@@ -35,29 +36,38 @@ telemetry event. `--locked` uses the dependency versions in `Cargo.lock`.
 Install Claude Code separately, then run `claudetap` to launch it through the
 proxy. Linux CI is configured to build and test on x86_64 and ARM64.
 
-### One-line Linux installer (requires publishing this script)
-
-Once `scripts/install-linux.sh` is merged into the repository's `main` branch:
+### One-line installer (Linux and macOS)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Leanmcp-Community/claudetap/main/scripts/install-linux.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Leanmcp-Community/claudetap/main/scripts/install.sh | bash
 ```
 
-This installs to `~/.local/bin` without sudo. It downloads the latest Linux x64
-or ARM64 release and verifies its SHA-256 checksum. Prebuilt binaries target
-glibc 2.35 or newer (Ubuntu 22.04+, Debian 12+); they do not require Rust or Node.js.
-If no binary has been published, it builds from source instead, installing Rust
-if needed. Source builds require the native build prerequisites above.
+This installs to `~/.local/bin` without sudo. It downloads the latest release
+binary for your OS/arch (Linux x64/ARM64, glibc 2.35+; macOS x64/ARM64) and
+verifies its SHA-256 checksum; neither Rust nor Node.js is required. If no
+binary has been published for your platform, it builds from source instead,
+installing Rust if needed (native build prerequisites still apply on Linux).
 
-To build from source explicitly, choose a release, or change the install folder:
+Releases are cut continuously: every push to `main` publishes a new release
+tagged `edge-<build number>-<commit>` (see `.github/workflows/release-edge.yml`),
+so `--version latest` (the default) tracks the tip of `main` rather than a
+hand-bumped semver number. Tagged `vX.Y.Z` releases (`release-linux.yml`) still
+exist for anyone who wants to pin a specific stable version.
+
+To build from source explicitly, pin a release, or change the install folder:
 
 ```bash
-bash scripts/install-linux.sh --source
-bash scripts/install-linux.sh --version v0.2.0 --prefix "$HOME/.local/bin"
+bash scripts/install.sh --source
+bash scripts/install.sh --version v0.2.0 --prefix "$HOME/.local/bin"
+bash scripts/install.sh --version edge-58-a1b2c3d4e5f6
 ```
 
-A version must exist as a Git tag or release. Re-run the installer to update;
-remove `~/.local/bin/claudetap` to uninstall the default binary installation.
+**Updating**: re-run the installer, or run `claudetap update` — it downloads
+the latest release for your platform, checks whether it's actually different
+(comparing `--version`, which embeds the git commit), and replaces the running
+binary in place if so. `claudetap update` refuses to touch a Homebrew-managed
+install; use `brew upgrade` for those. Remove `~/.local/bin/claudetap` to
+uninstall the default binary installation.
 
 ### Homebrew (macOS)
 

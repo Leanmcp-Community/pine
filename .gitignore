@@ -17,6 +17,7 @@ HASH
 .DS_Store
 
 # Local environment + scratch
+/.venv/
 .env
 .env.*
 !.env.example

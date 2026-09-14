@@ -1,0 +1,85 @@
+name: Release edge build
+
+# Continuous delivery: every push to main gets its own GitHub release,
+# tagged by an incrementing build number plus the commit it was built from
+# (not a hand-bumped semver). `scripts/install.sh` and `claudetap update`
+# both resolve "latest" to whichever release GitHub marks most recent, so
+# this is what keeps existing installs up to date without a manual version
+# bump or tag push. Versioned `vX.Y.Z` tags (release-linux.yml) still work
+# side by side for anyone who wants to pin a stable release.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-edge
+  cancel-in-progress: true
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+          - os: ubuntu-22.04-arm
+            target: aarch64-unknown-linux-gnu
+          - os: macos-13
+            target: x86_64-apple-darwin
+          - os: macos-14
+            target: aarch64-apple-darwin
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install stable Rust
+        run: rustup update stable --no-self-update
+      - name: Run tests
+        run: cargo +stable test --locked
+      - name: Build release
+        run: cargo +stable build --release --locked
+      - name: Package and checksum
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          target/release/claudetap --version
+          target/release/claudetap --help
+          mkdir dist
+          VERSION=$(cargo +stable metadata --no-deps --format-version 1 --locked | python3 -c 'import json,sys; print(json.load(sys.stdin)["packages"][0]["version"])')
+          python3 -c 'import json,os; print(json.dumps({"version": os.environ["VERSION"], "target": os.environ["TARGET"]}))' > target/release/release.json
+          tar -czf "dist/claudetap-$TARGET.tar.gz" -C target/release claudetap release.json
+          cd dist
+          shasum -a 256 "claudetap-$TARGET.tar.gz" > "claudetap-$TARGET.tar.gz.sha256"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: edge-${{ matrix.target }}
+          path: dist/*
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: edge-*
+          merge-multiple: true
+          path: dist
+      - name: Publish edge release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          tag="edge-${{ github.run_number }}-$(git rev-parse --short=12 HEAD)"
+          gh release create "$tag" dist/* \
+            --target "${{ github.sha }}" \
+            --title "$tag" \
+            --notes "Continuous build from ${{ github.sha }}."

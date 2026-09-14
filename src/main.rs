@@ -19,13 +19,14 @@ mod log;
 mod paths;
 mod proxy;
 mod sse;
+mod update;
 mod ws;
 
 /// Version string shown by `claudetap --version`. Composed of the
 /// crate version from Cargo.toml plus the short git hash (with a
 /// `-dirty` suffix if the working tree had uncommitted changes at
 /// build time). The git hash comes from `build.rs`.
-const CLAUDETAP_VERSION: &str = concat!(
+pub(crate) const CLAUDETAP_VERSION: &str = concat!(
     env!("CARGO_PKG_VERSION"),
     " (",
     env!("CLAUDETAP_GIT_HASH"),
@@ -232,6 +233,9 @@ enum Cmd {
     },
     #[command(hide = true)]
     InstallTelemetry,
+    /// Download and install the latest release for this platform, replacing
+    /// the running binary in place. No-op if already on the latest commit.
+    Update,
 }
 
 #[derive(Subcommand, Debug)]
@@ -312,6 +316,13 @@ fn main() -> Result<()> {
                 .build()
                 .context("building tokio runtime")?;
             rt.block_on(run_install_telemetry())
+        }
+        Some(Cmd::Update) => {
+            let rt = tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()
+                .context("building tokio runtime")?;
+            rt.block_on(update::run())
         }
         None => {
             let rt = tokio::runtime::Builder::new_multi_thread()

@@ -6,18 +6,27 @@ and a small JavaScript launcher. No package is published by building this repo.
 
 ## GitHub Releases and the one-line installer
 
-The `release-linux.yml` workflow builds and tests on native Ubuntu 22.04 x64 and
-ARM64 runners. It publishes these files when a `v*` version tag is pushed:
+Two workflows publish releases, and both produce the same asset shape:
 
-- `claudetap-x86_64-unknown-linux-gnu.tar.gz` and its `.sha256` checksum
-- `claudetap-aarch64-unknown-linux-gnu.tar.gz` and its `.sha256` checksum
+- `release-edge.yml` builds Linux (x64/ARM64) and macOS (x64/ARM64) on every
+  push to `main` and publishes a release tagged `edge-<run number>-<commit>`.
+  This is the continuous channel: no version bump needed, and it's what
+  `latest` resolves to day to day.
+- `release-linux.yml` builds Linux (x64/ARM64) only, triggered by pushing a
+  `v*` tag that matches `Cargo.toml`'s version. Use this for a stable release
+  someone might want to pin to.
 
-These builds require glibc 2.35 or newer. Alpine/musl, Windows, and macOS release
+Each publishes, per target:
+
+- `claudetap-<target>.tar.gz` and its `.sha256` checksum
+- targets: `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu`,
+  `x86_64-apple-darwin`, `aarch64-apple-darwin` (edge only)
+
+Linux builds require glibc 2.35 or newer. Alpine/musl and Windows release
 binaries are not included. GitHub Actions needs permission to write releases.
 
-Before releasing, update `Cargo.toml` and `Cargo.lock` to the intended version,
-commit the changes, and merge the installer and workflows. Then, using a version
-that matches Cargo and has not already been released:
+To cut a stable `vX.Y.Z` release: update `Cargo.toml`/`Cargo.lock`, commit,
+then tag and push:
 
 ```bash
 # Example only: choose the actual next version first.
@@ -27,17 +36,24 @@ git push origin v0.2.1
 
 Pushing the tag publishes a GitHub Release after both builds pass. Pre-release
 tags should use a hyphen, such as `v0.3.0-beta.1`; these are marked as prereleases.
-Once the script is on `main`, users can install with:
+Nothing else needs to happen for the edge channel — it publishes itself on every
+merge to `main`. Users install or update with:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Leanmcp-Community/claudetap/main/scripts/install-linux.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Leanmcp-Community/claudetap/main/scripts/install.sh | bash
+# or, once claudetap is already installed:
+claudetap update
 ```
 
 The installer prefers a checksummed prebuilt binary and falls back to building
 the selected tag (or `main` for `latest`) if the asset returns HTTP 404. A corrupt
 checksum, failed download, or incompatible binary fails without installing it.
-Source fallback installs Rust if missing, but requires C build tools and CMake
-already installed. It does not install system packages or change shell profiles.
+Source fallback installs Rust if missing, but requires C build tools (and, on
+Linux, CMake) already installed. It does not install system packages or change
+shell profiles. `claudetap update` does the same download-and-verify but skips
+the source fallback and replaces the running binary directly; it declines to
+touch a Homebrew-managed install (path under `Cellar`), since Homebrew's own
+metadata would go stale.
 
 ## npm packaging and publishing
 
