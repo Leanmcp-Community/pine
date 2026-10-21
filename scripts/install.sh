@@ -5,10 +5,27 @@
 # (default: `latest`) and overwrites the binary at `--prefix`.
 set -euo pipefail
 
+# `pn` is a short alias: a symlink to `pine` in the same folder. Skipped if a
+# different `pn` already exists there or earlier on PATH, so nothing is clobbered.
+link_short_alias() {
+    local dir="$1" existing
+    if [ -e "$dir/pn" ] && [ ! -L "$dir/pn" ]; then
+        echo ">>> Skipped the pn alias: $dir/pn already exists and isn't ours."
+        return
+    fi
+    existing=$(command -v pn 2>/dev/null || true)
+    if [ -n "$existing" ] && [ "$existing" != "$dir/pn" ]; then
+        echo ">>> Skipped the pn alias: another pn is already on your PATH ($existing)."
+        return
+    fi
+    ln -sf pine "$dir/pn"
+    echo ">>> Alias: $dir/pn -> pine"
+}
+
 main() {
-    local repo="Leanmcp-Community/claudetap"
+    local repo="Leanmcp-Community/pine"
     local version="latest" source_only=false
-    local prefix="${CLAUDETAP_INSTALL_DIR:-$HOME/.local/bin}"
+    local prefix="${PINE_INSTALL_DIR:-$HOME/.local/bin}"
     while [ "$#" -gt 0 ]; do
         case "$1" in
             --source) source_only=true; shift ;;
@@ -68,7 +85,7 @@ main() {
     trap 'exit 130' INT
     trap 'exit 143' TERM
 
-    local asset="claudetap-${target}.tar.gz"
+    local asset="pine-${target}.tar.gz"
     local base="https://github.com/$repo/releases"
     if [ "$version" = latest ]; then
         base="$base/latest/download"
@@ -76,7 +93,7 @@ main() {
         base="$base/download/$version"
     fi
     if [ "$source_only" = false ]; then
-        echo ">>> Downloading claudetap ($version, $target)"
+        echo ">>> Downloading pine ($version, $target)"
         local status
         status=$(curl --proto '=https' --tlsv1.2 -sSL --retry 3 \
             -w '%{http_code}' -o "$work/$asset" "$base/$asset")
@@ -84,8 +101,8 @@ main() {
             curl --proto '=https' --tlsv1.2 -fsSL --retry 3 \
                 "$base/$asset.sha256" -o "$work/$asset.sha256"
             (cd "$work" && "${checksum_cmd[@]}" "$asset.sha256")
-            tar -xzf "$work/$asset" -C "$work" claudetap
-            if ! "$work/claudetap" --version; then
+            tar -xzf "$work/$asset" -C "$work" pine
+            if ! "$work/pine" --version; then
                 echo "error: this binary won't run on this system; retry with --source" >&2
                 return 1
             fi
@@ -126,12 +143,13 @@ main() {
         mkdir "$work/source"
         tar -xzf "$work/source.tar.gz" -C "$work/source" --strip-components=1
         cargo install --path "$work/source" --locked --root "$work/built"
-        cp "$work/built/bin/claudetap" "$work/claudetap"
+        cp "$work/built/bin/pine" "$work/pine"
     fi
     mkdir -p "$prefix"
-    install -m 755 "$work/claudetap" "$prefix/claudetap"
-    echo ">>> Installed: $prefix/claudetap"
-    "$prefix/claudetap" --version
+    install -m 755 "$work/pine" "$prefix/pine"
+    echo ">>> Installed: $prefix/pine"
+    link_short_alias "$prefix"
+    "$prefix/pine" --version
     case ":$PATH:" in
         *":$prefix:"*) ;;
         *) printf 'Add this to your shell profile, then restart your shell:\n  export PATH=%q:"$PATH"\n' "$prefix" ;;

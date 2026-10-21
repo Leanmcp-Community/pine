@@ -1,13 +1,13 @@
 [package]
-name = "claudetap"
+name = "pine"
 version = "0.2.0"
 edition = "2021"
-description = "Local HTTPS MITM proxy that taps Claude Code traffic into ~/.claudetap"
+description = "Local HTTPS MITM proxy that taps Claude Code traffic into ~/.pine"
 license = "MIT"
 build = "build.rs"
 
 [[bin]]
-name = "claudetap"
+name = "pine"
 path = "src/main.rs"
 
 [dependencies]

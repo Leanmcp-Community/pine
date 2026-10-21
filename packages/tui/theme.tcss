@@ -1,4 +1,4 @@
-/* claudetap TUI — theme */
+/* pine TUI — theme */
 
 Screen {
     background: $surface;

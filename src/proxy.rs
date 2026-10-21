@@ -10,7 +10,7 @@
 //!   5. For each HTTP request observed in cleartext on the proxy: log it,
 //!      forward upstream, observe the response (buffered for normal bodies,
 //!      tee-streamed for `text/event-stream`), and write a record to
-//!      `~/.claudetap/sessions/<id>/traffic.jsonl`.
+//!      `~/.pine/sessions/<id>/traffic.jsonl`.
 
 use std::convert::Infallible;
 use std::net::SocketAddr;
@@ -117,7 +117,7 @@ pub async fn bind_listener(port: u16) -> Result<TcpListener> {
 
 pub async fn run(listener: TcpListener, state: Arc<ProxyState>) -> Result<()> {
     let local = listener.local_addr()?;
-    debug!(%local, "claudetap proxy listening");
+    debug!(%local, "pine proxy listening");
     loop {
         let (sock, peer) = match listener.accept().await {
             Ok(p) => p,
@@ -167,7 +167,7 @@ async fn proxy_entry(req: Request<Incoming>, state: Arc<ProxyState>) -> Response
         if state.passthrough_only_logged && !logged {
             return text_response(
                 StatusCode::FORBIDDEN,
-                "claudetap: passthrough_only_logged refuses non-tapped hosts",
+                "pine: passthrough_only_logged refuses non-tapped hosts",
             );
         }
 
@@ -202,7 +202,7 @@ async fn proxy_entry(req: Request<Incoming>, state: Arc<ProxyState>) -> Response
     } else {
         text_response(
             StatusCode::METHOD_NOT_ALLOWED,
-            "claudetap only supports HTTPS via CONNECT",
+            "pine only supports HTTPS via CONNECT",
         )
     }
 }
@@ -325,7 +325,7 @@ async fn handle_request(
                 error: Some(err.to_string()),
             };
             let _ = logger.append_traffic(&record).await;
-            text_response(StatusCode::BAD_GATEWAY, &format!("claudetap upstream error: {err}"))
+            text_response(StatusCode::BAD_GATEWAY, &format!("pine upstream error: {err}"))
         }
     }
 }
@@ -393,7 +393,7 @@ async fn handle_request_inner(
     // with one stray `{"event":null,"data":""}` line and nothing else,
     // even though the wire carried thousands of real SSE bytes.
     //
-    // claudetap is a debugging proxy on localhost — wire compression
+    // pine is a debugging proxy on localhost — wire compression
     // saves nothing here and only hurts inspection. Forcing `identity`
     // upstream gives us plaintext SSE we can actually parse, plaintext
     // JSON bodies in `bodies/`, and the TUI continues to work because

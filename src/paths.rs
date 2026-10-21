@@ -1,4 +1,4 @@
-//! Filesystem layout for `~/.claudetap`.
+//! Filesystem layout for `~/.pine`.
 //!
 //! Logs are write-only and append-only. Nothing in this module ever deletes,
 //! truncates, or rotates anything on disk. Sessions accumulate forever.
@@ -7,13 +7,25 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{anyhow, Context, Result};
 
-/// Root directory: `$CLAUDETAP_HOME` or `~/.claudetap`.
+/// Root directory: `$PINE_HOME` or `~/.pine`.
 pub fn root() -> Result<PathBuf> {
-    if let Ok(p) = std::env::var("CLAUDETAP_HOME") {
+    if let Ok(p) = std::env::var("PINE_HOME") {
         return Ok(PathBuf::from(p));
     }
     let home = dirs::home_dir().ok_or_else(|| anyhow!("could not resolve home directory"))?;
-    Ok(home.join(".claudetap"))
+    let root = home.join(".pine");
+    migrate_legacy_root(&home, &root);
+    Ok(root)
+}
+
+/// One-time move of data from the tool's previous name, so existing captures,
+/// the root CA and cloud config carry over. A rename, never a delete; does
+/// nothing once `~/.pine` exists. Safe to remove after users have upgraded.
+fn migrate_legacy_root(home: &Path, root: &Path) {
+    let legacy = home.join(concat!(".claude", "tap"));
+    if !root.exists() && legacy.is_dir() && std::fs::rename(&legacy, root).is_ok() {
+        eprintln!("pine: moved {} to {}", legacy.display(), root.display());
+    }
 }
 
 pub fn ca_dir() -> Result<PathBuf> {

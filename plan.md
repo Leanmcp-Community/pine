@@ -1,8 +1,8 @@
-# claudetap — Plan
+# pine — Plan
 
 A small Rust tool that captures every HTTPS request/response Claude Code makes
 to the Anthropic API — full URL, method, headers, body, status, response
-headers, response body (incl. SSE) — and writes them to `~/.claudetap/` as
+headers, response body (incl. SSE) — and writes them to `~/.pine/` as
 plaintext logs, *before* they hit the wire encrypted (and after they come back
 decrypted).
 
@@ -56,18 +56,18 @@ standard `HTTPS_PROXY` / `https_proxy` env var, and a custom CA can be trusted
 via `NODE_EXTRA_CA_CERTS` / `SSL_CERT_FILE` / `BUN_CA_BUNDLE` without
 modifying the binary or the system trust store.
 
-## 3. What `claudetap` actually is
+## 3. What `pine` actually is
 
 A single Rust binary that operates as a **launcher + proxy**:
 
 ```
-$ claudetap [-- claude args...]
+$ pine [-- claude args...]
 ```
 
 When invoked it:
 
-1. Ensures `~/.claudetap/` exists and a per-user CA exists at
-   `~/.claudetap/ca/{root.crt,root.key}` (created on first run, 4096-bit RSA
+1. Ensures `~/.pine/` exists and a per-user CA exists at
+   `~/.pine/ca/{root.crt,root.key}` (created on first run, 4096-bit RSA
    or P-256, ~10 yr validity, marked CA:TRUE, key stays mode 0600).
 2. Starts a local HTTPS MITM proxy on `127.0.0.1:<random-free-port>`.
 3. Forks/execs `claude` (resolved via `$PATH`, or `--claude-bin`) with a
@@ -77,10 +77,10 @@ When invoked it:
    HTTP_PROXY=http://127.0.0.1:<port>
    ALL_PROXY=http://127.0.0.1:<port>
    NO_PROXY=localhost,127.0.0.1     # don't proxy ourselves recursively
-   NODE_EXTRA_CA_CERTS=~/.claudetap/ca/root.crt
-   SSL_CERT_FILE=~/.claudetap/ca/root.crt
-   BUN_CA_BUNDLE=~/.claudetap/ca/root.crt
-   CLAUDETAP_SESSION=<ulid>
+   NODE_EXTRA_CA_CERTS=~/.pine/ca/root.crt
+   SSL_CERT_FILE=~/.pine/ca/root.crt
+   BUN_CA_BUNDLE=~/.pine/ca/root.crt
+   PINE_SESSION=<ulid>
    ```
 4. Streams every request through the proxy, logging only the configured
    target hosts (default: `api.anthropic.com`, `*.anthropic.com`,
@@ -91,7 +91,7 @@ When invoked it:
 
 **Why this is "minimalist":** no system-wide proxy, no system trust changes,
 no kernel modules, no entitlements, no daemon. The CA cert lives entirely
-under `~/.claudetap/`. Stop using `claudetap` and nothing about your system
+under `~/.pine/`. Stop using `pine` and nothing about your system
 has changed.
 
 ## 4. Why Rust
@@ -114,7 +114,7 @@ target). Rust is the right pick here.
 ## 5. Project layout
 
 ```
-claudetap/
+pine/
 ├── Cargo.toml
 ├── Cargo.lock
 ├── .gitignore
@@ -127,7 +127,7 @@ claudetap/
 │   ├── intercept.rs           # request/response capture + filtering
 │   ├── log.rs                 # JSONL writer, file rotation, redaction
 │   ├── launcher.rs            # spawn claude with patched env
-│   └── api.rs                 # optional REST query server (~/.claudetap/api)
+│   └── api.rs                 # optional REST query server (~/.pine/api)
 └── tests/
     └── e2e.rs                 # spin up proxy, hit it with reqwest, verify log
 ```
@@ -146,14 +146,14 @@ Core:
 CLI / IO:
 - `clap` (derive)
 - `serde`, `serde_json`
-- `dirs` — locate `~/.claudetap`
+- `dirs` — locate `~/.pine`
 - `ulid` — session + log ids
 - `time` — RFC3339 timestamps
 - `tracing` + `tracing-subscriber` — internal diagnostics (separate from
   captured-traffic logs)
 
 Optional:
-- `axum` + `tower-http` — minimal REST API for `claudetap logs ls/show/tail`
+- `axum` + `tower-http` — minimal REST API for `pine logs ls/show/tail`
   (the "REST-based" surface)
 - `eventsource-stream` — SSE-aware logging so streaming responses get logged
   event-by-event rather than as one opaque blob
@@ -184,16 +184,16 @@ not just after the stream closes.
 
 ## 8. CA + trust handling
 
-- CA created on first run. Files: `~/.claudetap/ca/root.crt`,
-  `~/.claudetap/ca/root.key` (mode 0600).
+- CA created on first run. Files: `~/.pine/ca/root.crt`,
+  `~/.pine/ca/root.key` (mode 0600).
 - Trust is **per-process via env vars**, not system-wide. We never call
   `security add-trusted-cert`. The CA exists only inside this user's home
   dir; any process that doesn't read those env vars won't trust it.
-- `claudetap ca path` prints the cert path. `claudetap ca rotate` regenerates.
+- `pine ca path` prints the cert path. `pine ca rotate` regenerates.
 - Leaf certs minted on demand for each upstream host, cached in-process.
 
 This is important: a CA on disk is sensitive. Refuse to start if
-`~/.claudetap/ca/root.key` is mode > 0600 or owned by another user. Document
+`~/.pine/ca/root.key` is mode > 0600 or owned by another user. Document
 this prominently.
 
 ## 9. Log format
@@ -201,7 +201,7 @@ this prominently.
 Per-session directory:
 
 ```
-~/.claudetap/sessions/<ulid>/
+~/.pine/sessions/<ulid>/
   meta.json          # session start ts, claude argv, claude version, pid
   traffic.jsonl      # one JSON object per request/response pair
   bodies/<req-id>.req.bin
@@ -249,22 +249,22 @@ base64); larger bodies go to a file. SSE responses always go to
 ## 10. CLI surface
 
 ```
-claudetap                       # launch claude under tap with defaults
-claudetap -- --print "hello"    # everything after -- forwarded to claude
-claudetap --hosts api.anthropic.com,statsig.anthropic.com
-claudetap --no-redact
-claudetap --port 0              # 0 = pick free port (default)
-claudetap --passthrough-only-logged
-claudetap ca path | rotate | print
-claudetap logs ls               # list sessions
-claudetap logs show <session>   # pretty-print traffic.jsonl
-claudetap logs tail [<session>] # follow live
-claudetap api [--port N]        # start the REST query server (optional)
+pine                       # launch claude under tap with defaults
+pine -- --print "hello"    # everything after -- forwarded to claude
+pine --hosts api.anthropic.com,statsig.anthropic.com
+pine --no-redact
+pine --port 0              # 0 = pick free port (default)
+pine --passthrough-only-logged
+pine ca path | rotate | print
+pine logs ls               # list sessions
+pine logs show <session>   # pretty-print traffic.jsonl
+pine logs tail [<session>] # follow live
+pine api [--port N]        # start the REST query server (optional)
 ```
 
 ## 11. Optional REST query API (the "rest-based" piece, if that's what you meant)
 
-`claudetap api` starts an `axum` server on `127.0.0.1:<port>`:
+`pine api` starts an `axum` server on `127.0.0.1:<port>`:
 
 - `GET /sessions` → list session ids + meta
 - `GET /sessions/:id` → session meta + traffic index
@@ -300,7 +300,7 @@ Bound to loopback only, no auth. Off by default; user starts it explicitly.
   `--max-session-bytes` with a safe default (e.g. 1 GiB) and rotate / refuse
   past that.
 - **CA private key safety.** Hard-fail on bad perms. Never log the key path.
-  Recommend users avoid syncing `~/.claudetap/ca/` to cloud storage.
+  Recommend users avoid syncing `~/.pine/ca/` to cloud storage.
 - **Self-loop.** Make sure `NO_PROXY=localhost,127.0.0.1` is set so the
   proxy's own outbound connection doesn't go through itself.
 - **Hardened-runtime gotcha (already known).** Don't even try to use
@@ -311,7 +311,7 @@ Bound to loopback only, no auth. Off by default; user starts it explicitly.
 
 - **M0 — scaffolding (this PR):** `plan.md`, `.gitignore`, empty
   `Cargo.toml`. No code yet.
-- **M1 — CA + leaf minting:** `claudetap ca path|print|rotate`. Persisted
+- **M1 — CA + leaf minting:** `pine ca path|print|rotate`. Persisted
   CA, deterministic leaf generation, cache by SNI.
 - **M2 — vanilla forward proxy (no MITM):** accept `CONNECT`, blind-tunnel
   upstream, no logging. Verifies `claude` actually uses it.
@@ -321,8 +321,8 @@ Bound to loopback only, no auth. Off by default; user starts it explicitly.
   `text/event-stream` into `stream/*.sse.jsonl`.
 - **M5 — HTTP/2 on both legs.**
 - **M6 — host filtering + redaction defaults.**
-- **M7 — `claudetap logs ls/show/tail` CLI.**
-- **M8 — `claudetap api` REST surface (optional).**
+- **M7 — `pine logs ls/show/tail` CLI.**
+- **M8 — `pine api` REST surface (optional).**
 - **M9 — packaging + README.**
 
 ## 14. Open questions for you
@@ -338,6 +338,6 @@ Bound to loopback only, no auth. Off by default; user starts it explicitly.
 4. **System trust.** Confirmed plan: per-process trust via env vars only,
    no `security add-trusted-cert`. Push back if you'd rather have system
    trust.
-5. **Auto-launch.** Should `claudetap` with no args launch `claude`, or
+5. **Auto-launch.** Should `pine` with no args launch `claude`, or
    should it just start the proxy and print the env vars for you to source?
    I picked auto-launch above.

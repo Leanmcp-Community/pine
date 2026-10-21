@@ -26,7 +26,7 @@ jobs:
         env:
           TAG: ${{ github.ref_name }}
         run: |
-          VERSION=$(cargo +stable metadata --no-deps --format-version 1 --locked | python3 -c 'import json,sys; print(json.load(sys.stdin)["packages"][0]["version"])')
+          export VERSION=$(cargo +stable metadata --no-deps --format-version 1 --locked | python3 -c 'import json,sys; print(json.load(sys.stdin)["packages"][0]["version"])')
           test "$TAG" = "v$VERSION"
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
       - name: Run tests
@@ -37,13 +37,13 @@ jobs:
         env:
           TARGET: ${{ matrix.target }}
         run: |
-          target/release/claudetap --version
-          target/release/claudetap --help
+          target/release/pine --version
+          target/release/pine --help
           mkdir dist
           python3 -c 'import json,os; print(json.dumps({"version": os.environ["VERSION"], "target": os.environ["TARGET"]}))' > target/release/release.json
-          tar -czf "dist/claudetap-$TARGET.tar.gz" -C target/release claudetap release.json
+          tar -czf "dist/pine-$TARGET.tar.gz" -C target/release pine release.json
           cd dist
-          sha256sum "claudetap-$TARGET.tar.gz" > "claudetap-$TARGET.tar.gz.sha256"
+          sha256sum "pine-$TARGET.tar.gz" > "pine-$TARGET.tar.gz.sha256"
       - uses: actions/upload-artifact@v4
         with:
           name: linux-${{ matrix.target }}

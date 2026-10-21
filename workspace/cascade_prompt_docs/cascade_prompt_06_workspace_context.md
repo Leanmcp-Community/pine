@@ -3,9 +3,9 @@
 ## Active Workspace
 
 ### Location
-- **Path**: `/Users/ddod/PersonalCode/AIRTRAIN/ORIGINAL/CLAUDE_DOCTOR/claudetap`
-- **CorpusName**: `rosaboyle/claudetap`
-- **Git Root**: `/Users/ddod/PersonalCode/AIRTRAIN/ORIGINAL/CLAUDE_DOCTOR/claudetap`
+- **Path**: `/Users/ddod/PersonalCode/AIRTRAIN/ORIGINAL/CLAUDE_DOCTOR/pine`
+- **CorpusName**: `rosaboyle/pine`
+- **Git Root**: `/Users/ddod/PersonalCode/AIRTRAIN/ORIGINAL/CLAUDE_DOCTOR/pine`
 
 ### Operating System
 - **OS**: macOS

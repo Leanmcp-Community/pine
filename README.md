@@ -1,10 +1,10 @@
-# Claudetap
+# Pine
 
-Local HTTPS MITM proxy that taps Claude Code traffic into `~/.claudetap`.
+Local HTTPS MITM proxy that taps Claude Code traffic into `~/.pine`.
 
 ## Installation
 
-Claudetap is written in Rust. Prebuilt Linux and macOS binaries are published
+Pine is written in Rust. Prebuilt Linux and macOS binaries are published
 continuously from `main` (see below); you can also build from source with
 Cargo on either platform. This repository also includes npm publishing tools,
 but those do not mean an npm package has been published.
@@ -22,24 +22,24 @@ sudo apt-get install -y build-essential cmake pkg-config ca-certificates
 Then build and install:
 
 ```bash
-git clone https://github.com/Leanmcp-Community/claudetap.git
-cd claudetap
+git clone https://github.com/Leanmcp-Community/pine.git
+cd pine
 cargo install --path . --locked
 export PATH="${CARGO_HOME:-$HOME/.cargo}/bin:$PATH"
-claudetap --version
+pine --version
 ```
 
 For an existing checkout, just run `cargo install --path . --locked` again.
 `./install.sh` performs the same Cargo installation and also records an install
 telemetry event. `--locked` uses the dependency versions in `Cargo.lock`.
 
-Install Claude Code separately, then run `claudetap` to launch it through the
+Install Claude Code separately, then run `pine` to launch it through the
 proxy. Linux CI is configured to build and test on x86_64 and ARM64.
 
 ### One-line installer (Linux and macOS)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Leanmcp-Community/claudetap/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Leanmcp-Community/pine/main/scripts/install.sh | bash
 ```
 
 This installs to `~/.local/bin` without sudo. It downloads the latest release
@@ -62,18 +62,18 @@ bash scripts/install.sh --version v0.2.0 --prefix "$HOME/.local/bin"
 bash scripts/install.sh --version edge-58-a1b2c3d4e5f6
 ```
 
-**Updating**: re-run the installer, or run `claudetap update` — it downloads
+**Updating**: re-run the installer, or run `pine update` — it downloads
 the latest release for your platform, checks whether it's actually different
 (comparing `--version`, which embeds the git commit), and replaces the running
-binary in place if so. `claudetap update` refuses to touch a Homebrew-managed
-install; use `brew upgrade` for those. Remove `~/.local/bin/claudetap` to
+binary in place if so. `pine update` refuses to touch a Homebrew-managed
+install; use `brew upgrade` for those. Remove `~/.local/bin/pine` to
 uninstall the default binary installation.
 
 ### Homebrew (macOS)
 
 ```bash
-brew tap leanmcp-community/claudetap https://github.com/Leanmcp-Community/claudetap.git
-brew install --HEAD leanmcp-community/claudetap/claudetap
+brew tap leanmcp-community/pine https://github.com/Leanmcp-Community/pine.git
+brew install --HEAD leanmcp-community/pine/pine
 ```
 
 This builds from source; Homebrew installs Rust as a build dependency.
@@ -94,43 +94,43 @@ for the release process and the distinction between npm packages and executables
 
 ## Usage
 
-Claudetap mints a local root CA, stands up an HTTPS MITM proxy, then launches a
+Pine mints a local root CA, stands up an HTTPS MITM proxy, then launches a
 target with its traffic routed through that proxy and logged to
-`~/.claudetap/sessions/<id>/`.
+`~/.pine/sessions/<id>/`.
 
 ```bash
 # Tap the Claude Code CLI (default; env-var proxy)
-claudetap                       # launches `claude` under the proxy
-claudetap -- --help             # args after `--` are forwarded to claude
+pine                       # launches `claude` under the proxy
+pine -- --help             # args after `--` are forwarded to claude
 
 # Tap Windsurf (Electron GUI; Chromium --proxy-server flags)
-claudetap windsurf
+pine windsurf
 
 # Tap the Antigravity CLI (`agy`, Google's agent CLI)
-claudetap antigravity           # or the alias: claudetap agy
-claudetap agy --agy-bin /path/to/agy
+pine antigravity           # or the alias: pine agy
+pine agy --agy-bin /path/to/agy
 
 # Tap the OpenAI Codex CLI
-claudetap codex
-claudetap codex -- --help
+pine codex
+pine codex -- --help
 
 # Just run the proxy and wire up your own client
-claudetap proxy
+pine proxy
 ```
 
 ### Trusting the CA (required for Antigravity & Windsurf)
 
 `agy` is a Go binary and Windsurf is Chromium-based; both validate TLS against
-the **OS trust store**, not env-var CA bundles. Install the claudetap root CA
+the **OS trust store**, not env-var CA bundles. Install the pine root CA
 once:
 
 ```bash
-claudetap ca trust       # add root CA to the login keychain (macOS)
-claudetap ca untrust     # remove it again
+pine ca trust       # add root CA to the login keychain (macOS)
+pine ca untrust     # remove it again
 ```
 
 The Claude Code launcher sets `NODE_EXTRA_CA_CERTS` for the child process.
-On Linux, `claudetap ca trust` prints manual certificate setup instructions; it
+On Linux, `pine ca trust` prints manual certificate setup instructions; it
 does not automatically modify certificate stores.
 
 ### What gets tapped

@@ -6,8 +6,8 @@
   "_seller_display_name_note": "Not part of the change set. The public seller name comes from the seller profile in the AWS Marketplace Management Portal. Kept here as a record of the intended name.",
   "seller_display_name": "Leanmcp",
   "_logo_url_note": "Must be a direct, publicly readable S3 URL. GitHub raw URLs are rejected with INVALID_MEDIA. Set by 03_upload_logo.sh.",
-  "logo_url": "https://claudetap-marketplace-assets-187692046617.s3.amazonaws.com/logo.png",
-  "support_description": "Email contact@leanmcp.com for support. We answer during business hours on weekdays. Include your instance ID, AWS Region, and the output of 'sudo journalctl -u claudetap -n 200' when reporting a problem.",
+  "logo_url": "https://pine-marketplace-assets-187692046617.s3.amazonaws.com/logo.png",
+  "support_description": "Email contact@leanmcp.com for support. We answer during business hours on weekdays. Include your instance ID, AWS Region, and the output of 'sudo journalctl -u pine -n 200' when reporting a problem.",
   "support_url": "",
   "refund_policy": "No refund by default; you pay only for the hours you use. In exceptional cases, such as a defect in the software, we may issue a refund at our discretion. No refunds after 7 days.",
   "eula": {
@@ -35,5 +35,5 @@
     "m5.xlarge": "2.80"
   },
   "version_title": "1.0.0",
-  "release_notes": "First AWS Marketplace release of the Claudetap capture server."
+  "release_notes": "First AWS Marketplace release of the Pine capture server."
 }

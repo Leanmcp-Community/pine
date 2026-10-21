@@ -31,7 +31,7 @@ pub fn resolve_windsurf(explicit: Option<&Path>) -> Result<PathBuf> {
     // On macOS, prefer the real Electron binary inside Windsurf.app over
     // whatever `which windsurf` finds — the latter is typically the
     // ~/.codeium/windsurf/bin/windsurf CLI shim, which uses `open` to launch
-    // the GUI as a detached process. That detaches the child from claudetap,
+    // the GUI as a detached process. That detaches the child from pine,
     // so the supervisor sees an immediate exit(0) and tears down the proxy
     // before any real traffic flows.
     #[cfg(target_os = "macos")]
@@ -235,8 +235,8 @@ pub fn running_windsurf_pids() -> Vec<u32> {
         let _ = push_pgrep;
     }
 
-    // Never list ourselves — pgrep -f might match the claudetap process if
-    // "windsurf" appears in our own argv (it does: `claudetap windsurf`).
+    // Never list ourselves — pgrep -f might match the pine process if
+    // "windsurf" appears in our own argv (it does: `pine windsurf`).
     let me = std::process::id();
     pids.retain(|&p| p != me);
     pids
@@ -272,7 +272,7 @@ async fn kill_running_electron(
 
     #[cfg(unix)]
     {
-        // If claudetap was launched from Windsurf's own integrated terminal,
+        // If pine was launched from Windsurf's own integrated terminal,
         // killing Windsurf will close our controlling tty and deliver SIGHUP
         // to us. Ignore so we survive long enough to relaunch. SIGPIPE for
         // the same reason — writes to the dead stdout would otherwise kill us.
@@ -366,9 +366,9 @@ pub async fn spawn_electron(spec: LaunchSpec, user_data_dir: Option<&Path>) -> R
     cmd.args(&spec.args);
 
     // If the user didn't pass a positional path after `--`, default to opening
-    // the directory `claudetap windsurf` was invoked from. Without this, the
+    // the directory `pine windsurf` was invoked from. Without this, the
     // bare Electron binary reopens whatever workspace it had last — which is
-    // emphatically NOT what someone running `claudetap windsurf` from a
+    // emphatically NOT what someone running `pine windsurf` from a
     // project dir expects (`windsurf .` is the equivalent shim behavior).
     let user_supplied_path = spec.args.iter().any(|a| {
         let s = a.to_string_lossy();
@@ -394,7 +394,7 @@ pub async fn spawn_electron(spec: LaunchSpec, user_data_dir: Option<&Path>) -> R
     cmd.env("REQUESTS_CA_BUNDLE", &ca_cert_str);
     cmd.env("GRPC_DEFAULT_SSL_ROOTS_FILE_PATH", &ca_cert_str);
 
-    cmd.env("CLAUDETAP_SESSION", &spec.session_id);
+    cmd.env("PINE_SESSION", &spec.session_id);
 
     cmd.stdin(Stdio::inherit())
         .stdout(Stdio::inherit())
@@ -505,8 +505,8 @@ pub fn resolve_antigravity(explicit: Option<&Path>) -> Result<PathBuf> {
 /// `agy` is a Go binary, so `net/http` picks up `HTTP(S)_PROXY`/`NO_PROXY`
 /// from the environment automatically — no Chromium `--proxy-server` flags
 /// needed (those only apply to the Electron GUI). On macOS Go validates TLS
-/// against the system keychain, so the claudetap root CA must be OS-trusted
-/// (`claudetap ca trust`); the `*_CA_*` env vars below are best-effort for the
+/// against the system keychain, so the pine root CA must be OS-trusted
+/// (`pine ca trust`); the `*_CA_*` env vars below are best-effort for the
 /// Node/Electron tooling `agy` may shell out to.
 pub async fn spawn_antigravity(spec: LaunchSpec) -> Result<Child> {
     let ca_cert = paths::ca_cert_path()?;
@@ -533,7 +533,7 @@ pub async fn spawn_antigravity(spec: LaunchSpec) -> Result<Child> {
     cmd.env("REQUESTS_CA_BUNDLE", &ca_cert_str);
     cmd.env("GRPC_DEFAULT_SSL_ROOTS_FILE_PATH", &ca_cert_str);
 
-    cmd.env("CLAUDETAP_SESSION", &spec.session_id);
+    cmd.env("PINE_SESSION", &spec.session_id);
 
     cmd.stdin(Stdio::inherit())
         .stdout(Stdio::inherit())
@@ -597,7 +597,7 @@ pub async fn spawn(spec: LaunchSpec) -> Result<Child> {
     cmd.env("BUN_CA_BUNDLE", &ca_cert_str);
     cmd.env("REQUESTS_CA_BUNDLE", &ca_cert_str);
 
-    cmd.env("CLAUDETAP_SESSION", &spec.session_id);
+    cmd.env("PINE_SESSION", &spec.session_id);
 
     cmd.stdin(Stdio::inherit())
         .stdout(Stdio::inherit())

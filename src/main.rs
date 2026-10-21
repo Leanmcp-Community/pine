@@ -1,4 +1,4 @@
-//! claudetap entry point: CLI parsing + orchestration.
+//! pine entry point: CLI parsing + orchestration.
 
 use std::ffi::OsString;
 use std::path::PathBuf;
@@ -19,17 +19,18 @@ mod log;
 mod paths;
 mod proxy;
 mod sse;
+mod team;
 mod update;
 mod ws;
 
-/// Version string shown by `claudetap --version`. Composed of the
+/// Version string shown by `pine --version`. Composed of the
 /// crate version from Cargo.toml plus the short git hash (with a
 /// `-dirty` suffix if the working tree had uncommitted changes at
 /// build time). The git hash comes from `build.rs`.
-pub(crate) const CLAUDETAP_VERSION: &str = concat!(
+pub(crate) const PINE_VERSION: &str = concat!(
     env!("CARGO_PKG_VERSION"),
     " (",
-    env!("CLAUDETAP_GIT_HASH"),
+    env!("PINE_GIT_HASH"),
     ")",
 );
 
@@ -108,9 +109,9 @@ const CODEX_HOSTS: &[&str] = &[
 
 #[derive(Parser, Debug)]
 #[command(
-    name = "claudetap",
-    version = CLAUDETAP_VERSION,
-    about = "Tap AI tool HTTPS traffic into ~/.claudetap (logs are kept forever).",
+    name = "pine",
+    version = PINE_VERSION,
+    about = "Tap AI tool HTTPS traffic into ~/.pine (logs are kept forever).",
     disable_help_subcommand = true
 )]
 struct Cli {
@@ -145,6 +146,46 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Cmd {
+    /// Log in with GitHub so sessions sync to your team (pine login).
+    Login,
+    /// Log out of Pine on this device. Recording continues locally.
+    Logout,
+    /// Who you are, and whether sync is live or local-only.
+    Whoami,
+    /// Upload sessions now (and keep watching). `status`, `pause`, `resume`.
+    Sync {
+        #[command(subcommand)]
+        sub: Option<team::SyncCmd>,
+        /// One pass, then exit.
+        #[arg(long, default_value_t = false)]
+        once: bool,
+        /// Also share sessions recorded before you logged in.
+        #[arg(long, default_value_t = false)]
+        all: bool,
+    },
+    /// Name the current conversation at this moment so teammates can pull it.
+    Checkpoint {
+        /// Checkpoint name, e.g. "rate-limit-working".
+        name: String,
+        /// What this checkpoint is.
+        #[arg(short = 'm', long)]
+        note: Option<String>,
+        /// Session id (default: the most recent session).
+        #[arg(long)]
+        session: Option<String>,
+    },
+    /// List your team's checkpoints.
+    Checkpoints,
+    /// Download a teammate's checkpoint (by name) or session (by id).
+    Pull {
+        /// Checkpoint name or session id.
+        target: String,
+    },
+    /// Open a session (default: the most recent) on app.usepine.dev.
+    Open {
+        /// Session id.
+        id: Option<String>,
+    },
     /// Configure and run optional cloud uploads.
     Cloud { #[command(subcommand)] sub: cloud::Command },
     /// CA management.
@@ -152,7 +193,7 @@ enum Cmd {
         #[command(subcommand)]
         sub: CaCmd,
     },
-    /// Print the resolved `~/.claudetap` root and exit.
+    /// Print the resolved `~/.pine` root and exit.
     Where,
     /// Run only the proxy. Doesn't launch claude. Stays up until Ctrl-C.
     ///
@@ -169,7 +210,7 @@ enum Cmd {
         /// keeps proxy/CA changes out of your real Windsurf profile).
         #[arg(long, value_name = "DIR")]
         user_data_dir: Option<PathBuf>,
-        /// Skip the OS-trust check for the claudetap root CA. Chromium will
+        /// Skip the OS-trust check for the pine root CA. Chromium will
         /// reject our forged certs without it; only useful for debugging.
         #[arg(long, default_value_t = false)]
         skip_trust_check: bool,
@@ -208,7 +249,7 @@ enum Cmd {
         /// sidesteps Electron's single-instance lock.
         #[arg(long, value_name = "DIR")]
         user_data_dir: Option<PathBuf>,
-        /// (GUI only) Skip the OS-trust check for the claudetap root CA.
+        /// (GUI only) Skip the OS-trust check for the pine root CA.
         /// Chromium rejects our forged certs without it; debugging only.
         #[arg(long, default_value_t = false)]
         skip_trust_check: bool,
@@ -244,14 +285,21 @@ enum CaCmd {
     Path,
     /// Print the CA certificate to stdout.
     Print,
-    /// Install the claudetap root CA into the OS trust store (login keychain
+    /// Install the pine root CA into the OS trust store (login keychain
     /// on macOS). Required for Chromium-based clients (Windsurf, Cursor).
     Trust,
-    /// Remove the claudetap root CA from the OS trust store.
+    /// Remove the pine root CA from the OS trust store.
     Untrust,
-    /// Untrust AND delete the on-disk CA files (`~/.claudetap/ca/`). Next run
+    /// Untrust AND delete the on-disk CA files (`~/.pine/ca/`). Next run
     /// will mint a brand-new root CA — you'll need to `ca trust` it again.
     Reset,
+}
+
+fn runtime() -> Result<tokio::runtime::Runtime> {
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .context("building tokio runtime")
 }
 
 fn main() -> Result<()> {
@@ -261,6 +309,14 @@ fn main() -> Result<()> {
 
     match cli.command {
         Some(Cmd::Cloud { sub }) => tokio::runtime::Builder::new_multi_thread().enable_all().build()?.block_on(cloud::run(sub)),
+        Some(Cmd::Login) => runtime()?.block_on(team::login()),
+        Some(Cmd::Logout) => runtime()?.block_on(team::logout()),
+        Some(Cmd::Whoami) => runtime()?.block_on(team::whoami()),
+        Some(Cmd::Sync { sub, once, all }) => runtime()?.block_on(team::sync_cmd(sub, once, all)),
+        Some(Cmd::Checkpoint { name, note, session }) => runtime()?.block_on(team::checkpoint(name, note, session)),
+        Some(Cmd::Checkpoints) => runtime()?.block_on(team::checkpoints()),
+        Some(Cmd::Pull { target }) => runtime()?.block_on(team::pull(target)),
+        Some(Cmd::Open { id }) => team::open(id),
         Some(Cmd::Where) => {
             println!("{}", paths::root()?.display());
             Ok(())
@@ -283,7 +339,7 @@ fn main() -> Result<()> {
                 .enable_all()
                 .build()
                 .context("building tokio runtime")?;
-            rt.block_on(run_windsurf(cli))
+            rt.block_on(team::with_live_sync(run_windsurf(cli)))
         }
         Some(Cmd::Antigravity { gui, .. }) => {
             let rt = tokio::runtime::Builder::new_multi_thread()
@@ -291,9 +347,9 @@ fn main() -> Result<()> {
                 .build()
                 .context("building tokio runtime")?;
             if gui {
-                rt.block_on(run_antigravity_gui(cli))
+                rt.block_on(team::with_live_sync(run_antigravity_gui(cli)))
             } else {
-                rt.block_on(run_antigravity(cli))
+                rt.block_on(team::with_live_sync(run_antigravity(cli)))
             }
         }
         Some(Cmd::Codex { .. }) => {
@@ -301,14 +357,14 @@ fn main() -> Result<()> {
                 .enable_all()
                 .build()
                 .context("building tokio runtime")?;
-            rt.block_on(run_codex(cli))
+            rt.block_on(team::with_live_sync(run_codex(cli)))
         }
         Some(Cmd::Proxy) => {
             let rt = tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
                 .build()
                 .context("building tokio runtime")?;
-            rt.block_on(run_proxy_only(cli))
+            rt.block_on(team::with_live_sync(run_proxy_only(cli)))
         }
         Some(Cmd::InstallTelemetry) => {
             let rt = tokio::runtime::Builder::new_multi_thread()
@@ -329,7 +385,7 @@ fn main() -> Result<()> {
                 .enable_all()
                 .build()
                 .context("building tokio runtime")?;
-            rt.block_on(run_proxy_and_launch(cli))
+            rt.block_on(team::with_live_sync(run_proxy_and_launch(cli)))
         }
     }
 }
@@ -369,10 +425,10 @@ async fn run_install_telemetry() -> Result<()> {
 
 fn init_tracing() {
     // Default to warnings only so the banner is the primary signal at
-    // startup. Bump with `CLAUDETAP_LOG=claudetap=info` (or =debug) when you
+    // startup. Bump with `PINE_LOG=pine=info` (or =debug) when you
     // want per-connection traces.
-    let filter = EnvFilter::try_from_env("CLAUDETAP_LOG")
-        .unwrap_or_else(|_| EnvFilter::new("claudetap=warn"));
+    let filter = EnvFilter::try_from_env("PINE_LOG")
+        .unwrap_or_else(|_| EnvFilter::new("pine=warn"));
     let _ = tracing_subscriber::fmt()
         .with_env_filter(filter)
         .with_target(false)
@@ -437,7 +493,7 @@ async fn run_proxy_and_launch(cli: Cli) -> Result<()> {
     // of scrollback even if claude paints over the visible area.
     let session_dir = paths::session_dir(&session_id)?;
     let ca_path = paths::ca_cert_path()?;
-    let banner_text = banner::Banner::new("claudetap · launching")
+    let banner_text = banner::Banner::new("pine · launching")
         .row("session", session_id.clone())
         .row("proxy", proxy_url.clone())
         .row("logs", banner::abbrev_path(&session_dir))
@@ -473,7 +529,7 @@ async fn run_proxy_and_launch(cli: Cli) -> Result<()> {
         proxy_addr: local.to_string(),
         redact: !cli.no_redact,
         host_filter: hosts,
-        claudetap_version: env!("CARGO_PKG_VERSION").to_string(),
+        pine_version: env!("CARGO_PKG_VERSION").to_string(),
         session_dir: Some(session_dir.display().to_string()),
         ca_cert_path: Some(ca_path.display().to_string()),
         cwd: std::env::current_dir().ok().map(|p| p.display().to_string()),
@@ -501,7 +557,7 @@ async fn run_proxy_and_launch(cli: Cli) -> Result<()> {
         warn!(error = %e, "updating meta.json on shutdown");
     }
     eprintln!(
-        "\nclaudetap: claude exited (code={}) — session {}\n           logs at {}",
+        "\npine: claude exited (code={}) — session {}\n           logs at {}",
         code.map(|c| c.to_string()).unwrap_or_else(|| "signal".to_string()),
         session_id,
         session_dir.display()
@@ -516,7 +572,7 @@ async fn run_proxy_and_launch(cli: Cli) -> Result<()> {
     std::process::exit(code.unwrap_or(0));
 }
 
-/// `claudetap proxy`: stand the proxy up and stay alive until Ctrl-C.
+/// `pine proxy`: stand the proxy up and stay alive until Ctrl-C.
 ///
 /// We deliberately don't fork a child here so the proxy lives as long as
 /// the user wants. Useful for manual testing with curl, or for users who
@@ -570,7 +626,7 @@ async fn run_proxy_only(cli: Cli) -> Result<()> {
         proxy_addr: local.to_string(),
         redact: !cli.no_redact,
         host_filter: hosts.clone(),
-        claudetap_version: env!("CARGO_PKG_VERSION").to_string(),
+        pine_version: env!("CARGO_PKG_VERSION").to_string(),
         session_dir: Some(session_dir.display().to_string()),
         ca_cert_path: Some(ca_path.display().to_string()),
         cwd: std::env::current_dir().ok().map(|p| p.display().to_string()),
@@ -583,7 +639,7 @@ async fn run_proxy_only(cli: Cli) -> Result<()> {
         system: Some(collect_system_info()),
     };
     logger.write_meta(&meta).await?;
-    let banner_text = banner::Banner::new("claudetap · proxy (no child)")
+    let banner_text = banner::Banner::new("pine · proxy (no child)")
         .row("session", session_id.clone())
         .row("proxy", proxy_url.clone())
         .row("logs", banner::abbrev_path(&session_dir))
@@ -594,7 +650,7 @@ async fn run_proxy_only(cli: Cli) -> Result<()> {
     print!("{}", banner_text);
 
     // Copy-pasteable env block under the box.
-    println!("# Source these to send another shell's traffic through claudetap:");
+    println!("# Source these to send another shell's traffic through pine:");
     println!("export HTTPS_PROXY={proxy_url}");
     println!("export HTTP_PROXY={proxy_url}");
     println!("export ALL_PROXY={proxy_url}");
@@ -630,7 +686,7 @@ async fn run_proxy_only(cli: Cli) -> Result<()> {
         warn!(error = %e, "updating meta.json on shutdown");
     }
     eprintln!(
-        "\nclaudetap: proxy stopped — session {}\n           logs at {}",
+        "\npine: proxy stopped — session {}\n           logs at {}",
         session_id,
         session_dir.display()
     );
@@ -669,21 +725,21 @@ async fn run_windsurf(cli: Cli) -> Result<()> {
     if !skip_trust_check {
         match ca::is_os_trusted()? {
             Some(true) => {
-                eprintln!("claudetap: root CA is trusted by the OS keychain ✓");
+                eprintln!("pine: root CA is trusted by the OS keychain ✓");
             }
             Some(false) => {
                 eprintln!(
-                    "\nclaudetap: ⚠  WARNING — root CA is NOT trusted by the OS keychain.\n\
+                    "\npine: ⚠  WARNING — root CA is NOT trusted by the OS keychain.\n\
                      \x20            Chromium will reject our forged certs; most Windsurf\n\
                      \x20            requests will fail with NET::ERR_CERT_AUTHORITY_INVALID.\n\
-                     \x20            Fix: claudetap ca trust    (then re-run)\n\
+                     \x20            Fix: pine ca trust    (then re-run)\n\
                      \x20            Continuing in 2s — Ctrl-C to abort.\n"
                 );
                 tokio::time::sleep(std::time::Duration::from_secs(2)).await;
             }
             None => {
                 eprintln!(
-                    "claudetap: ⚠  cannot verify OS trust on this platform; \
+                    "pine: ⚠  cannot verify OS trust on this platform; \
                      ensure the root CA is trusted or Chromium will reject requests."
                 );
             }
@@ -695,13 +751,13 @@ async fn run_windsurf(cli: Cli) -> Result<()> {
             return Err(anyhow::anyhow!(
                 "Windsurf is already running and --no-restart was passed. \
                  Quit it first (⌘Q on macOS), drop --no-restart to let \
-                 claudetap kill and relaunch it, or pass --user-data-dir \
+                 pine kill and relaunch it, or pass --user-data-dir \
                  <fresh> to launch an isolated instance."
             ));
         }
         let before = launcher::running_windsurf_pids();
         eprintln!(
-            "claudetap: Windsurf is already running ({} proc(s)) — terminating it so we can \
+            "pine: Windsurf is already running ({} proc(s)) — terminating it so we can \
              relaunch under the proxy (pass --no-restart to disable)...",
             before.len()
         );
@@ -712,11 +768,11 @@ async fn run_windsurf(cli: Cli) -> Result<()> {
         let survivors = launcher::running_windsurf_pids();
         if !survivors.is_empty() {
             return Err(anyhow::anyhow!(
-                "claudetap: signalled {} Windsurf process(es) but {} are still alive: {:?}.\n\
+                "pine: signalled {} Windsurf process(es) but {} are still alive: {:?}.\n\
                  This usually means something (launchctl KeepAlive, a watchdog, or your \
                  desktop session) is respawning Windsurf faster than we can kill it.\n\
                  Try:\n\
-                  - quit Windsurf manually (⌘Q), then re-run claudetap windsurf;\n\
+                  - quit Windsurf manually (⌘Q), then re-run pine windsurf;\n\
                   - check `launchctl list | grep -i windsurf` for KeepAlive agents;\n\
                   - run with --user-data-dir /tmp/wsf-tap to launch an isolated instance \
                     instead of restarting yours.",
@@ -726,7 +782,7 @@ async fn run_windsurf(cli: Cli) -> Result<()> {
             ));
         }
         eprintln!(
-            "claudetap: terminated {} Windsurf process(es); relaunching under the proxy.",
+            "pine: terminated {} Windsurf process(es); relaunching under the proxy.",
             killed
         );
     }
@@ -766,7 +822,7 @@ async fn run_windsurf(cli: Cli) -> Result<()> {
 
     let session_dir = paths::session_dir(&session_id)?;
     let ca_path = paths::ca_cert_path()?;
-    let banner_text = banner::Banner::new("claudetap · windsurf")
+    let banner_text = banner::Banner::new("pine · windsurf")
         .row("session", session_id.clone())
         .row("proxy", proxy_url.clone())
         .row("logs", banner::abbrev_path(&session_dir))
@@ -800,7 +856,7 @@ async fn run_windsurf(cli: Cli) -> Result<()> {
         proxy_addr: local.to_string(),
         redact: !cli.no_redact,
         host_filter: hosts,
-        claudetap_version: env!("CARGO_PKG_VERSION").to_string(),
+        pine_version: env!("CARGO_PKG_VERSION").to_string(),
         session_dir: Some(session_dir.display().to_string()),
         ca_cert_path: Some(ca_path.display().to_string()),
         cwd: std::env::current_dir().ok().map(|p| p.display().to_string()),
@@ -826,7 +882,7 @@ async fn run_windsurf(cli: Cli) -> Result<()> {
     }
     let elapsed = spawn_instant.elapsed();
     eprintln!(
-        "\nclaudetap: windsurf exited (code={}, after {:.1}s) — session {}\n           logs at {}",
+        "\npine: windsurf exited (code={}, after {:.1}s) — session {}\n           logs at {}",
         code.map(|c| c.to_string()).unwrap_or_else(|| "signal".to_string()),
         elapsed.as_secs_f32(),
         session_id,
@@ -838,16 +894,16 @@ async fn run_windsurf(cli: Cli) -> Result<()> {
     // Windsurf. If we see that pattern, point the user at the real fix.
     if elapsed < std::time::Duration::from_secs(3) && code == Some(0) {
         eprintln!(
-            "\nclaudetap: ⚠  windsurf exited almost immediately. Most likely cause:\n\
+            "\npine: ⚠  windsurf exited almost immediately. Most likely cause:\n\
              \x20            another Windsurf process is alive and the new launch was\n\
              \x20            forwarded to it via Electron's single-instance lock — meaning\n\
              \x20            our proxy and CA settings were dropped.\n\n\
              \x20  This usually means our process-detection missed it. Try:\n\
              \x20    1. Fully kill all Windsurf procs yourself, then re-run:\n\
              \x20         pkill -9 -i windsurf && sleep 1 && pgrep -fl -i windsurf\n\
-             \x20         claudetap windsurf\n\
+             \x20         pine windsurf\n\
              \x20    2. Use an isolated profile (bypasses the singleton lock):\n\
-             \x20         claudetap windsurf --user-data-dir /tmp/wsf-tap\n"
+             \x20         pine windsurf --user-data-dir /tmp/wsf-tap\n"
         );
     }
 
@@ -878,21 +934,21 @@ async fn run_antigravity(cli: Cli) -> Result<()> {
     // an env-var CA bundle is honored, or have trust set up out-of-band.
     match ca::is_os_trusted()? {
         Some(true) => {
-            eprintln!("claudetap: root CA is trusted by the OS keychain ✓");
+            eprintln!("pine: root CA is trusted by the OS keychain ✓");
         }
         Some(false) => {
             eprintln!(
-                "\nclaudetap: ⚠  WARNING — root CA is NOT trusted by the OS keychain.\n\
+                "\npine: ⚠  WARNING — root CA is NOT trusted by the OS keychain.\n\
                  \x20            agy is a Go binary and validates TLS against the system\n\
                  \x20            trust store; most requests will fail with a cert error.\n\
-                 \x20            Fix: claudetap ca trust    (then re-run)\n\
+                 \x20            Fix: pine ca trust    (then re-run)\n\
                  \x20            Continuing in 2s — Ctrl-C to abort.\n"
             );
             tokio::time::sleep(std::time::Duration::from_secs(2)).await;
         }
         None => {
             eprintln!(
-                "claudetap: ⚠  cannot verify OS trust on this platform; \
+                "pine: ⚠  cannot verify OS trust on this platform; \
                  ensure the root CA is trusted or agy will reject requests."
             );
         }
@@ -933,7 +989,7 @@ async fn run_antigravity(cli: Cli) -> Result<()> {
 
     let session_dir = paths::session_dir(&session_id)?;
     let ca_path = paths::ca_cert_path()?;
-    let banner_text = banner::Banner::new("claudetap · antigravity")
+    let banner_text = banner::Banner::new("pine · antigravity")
         .row("session", session_id.clone())
         .row("proxy", proxy_url.clone())
         .row("logs", banner::abbrev_path(&session_dir))
@@ -966,7 +1022,7 @@ async fn run_antigravity(cli: Cli) -> Result<()> {
         proxy_addr: local.to_string(),
         redact: !cli.no_redact,
         host_filter: hosts,
-        claudetap_version: env!("CARGO_PKG_VERSION").to_string(),
+        pine_version: env!("CARGO_PKG_VERSION").to_string(),
         session_dir: Some(session_dir.display().to_string()),
         ca_cert_path: Some(ca_path.display().to_string()),
         cwd: std::env::current_dir().ok().map(|p| p.display().to_string()),
@@ -991,7 +1047,7 @@ async fn run_antigravity(cli: Cli) -> Result<()> {
         warn!(error = %e, "updating meta.json on shutdown");
     }
     eprintln!(
-        "\nclaudetap: agy exited (code={}) — session {}\n           logs at {}",
+        "\npine: agy exited (code={}) — session {}\n           logs at {}",
         code.map(|c| c.to_string()).unwrap_or_else(|| "signal".to_string()),
         session_id,
         session_dir.display()
@@ -1037,21 +1093,21 @@ async fn run_antigravity_gui(cli: Cli) -> Result<()> {
     if !skip_trust_check {
         match ca::is_os_trusted()? {
             Some(true) => {
-                eprintln!("claudetap: root CA is trusted by the OS keychain ✓");
+                eprintln!("pine: root CA is trusted by the OS keychain ✓");
             }
             Some(false) => {
                 eprintln!(
-                    "\nclaudetap: ⚠  WARNING — root CA is NOT trusted by the OS keychain.\n\
+                    "\npine: ⚠  WARNING — root CA is NOT trusted by the OS keychain.\n\
                      \x20            Chromium will reject our forged certs; most Antigravity\n\
                      \x20            GUI requests will fail with NET::ERR_CERT_AUTHORITY_INVALID.\n\
-                     \x20            Fix: claudetap ca trust    (then re-run)\n\
+                     \x20            Fix: pine ca trust    (then re-run)\n\
                      \x20            Continuing in 2s — Ctrl-C to abort.\n"
                 );
                 tokio::time::sleep(std::time::Duration::from_secs(2)).await;
             }
             None => {
                 eprintln!(
-                    "claudetap: ⚠  cannot verify OS trust on this platform; \
+                    "pine: ⚠  cannot verify OS trust on this platform; \
                      ensure the root CA is trusted or Chromium will reject requests."
                 );
             }
@@ -1062,14 +1118,14 @@ async fn run_antigravity_gui(cli: Cli) -> Result<()> {
         if no_restart {
             return Err(anyhow::anyhow!(
                 "Antigravity is already running and --no-restart was passed. \
-                 Quit it first (⌘Q on macOS), drop --no-restart to let claudetap \
+                 Quit it first (⌘Q on macOS), drop --no-restart to let pine \
                  kill and relaunch it, or pass --user-data-dir <fresh> to launch \
                  an isolated instance."
             ));
         }
         let before = launcher::running_antigravity_pids();
         eprintln!(
-            "claudetap: Antigravity GUI is already running ({} proc(s)) — terminating it so we \
+            "pine: Antigravity GUI is already running ({} proc(s)) — terminating it so we \
              can relaunch under the proxy (pass --no-restart to disable)...",
             before.len()
         );
@@ -1079,9 +1135,9 @@ async fn run_antigravity_gui(cli: Cli) -> Result<()> {
         let survivors = launcher::running_antigravity_pids();
         if !survivors.is_empty() {
             return Err(anyhow::anyhow!(
-                "claudetap: signalled {} Antigravity process(es) but {} are still alive: {:?}.\n\
+                "pine: signalled {} Antigravity process(es) but {} are still alive: {:?}.\n\
                  Something is respawning it faster than we can kill it. Try:\n\
-                  - quit Antigravity manually (⌘Q), then re-run claudetap agy --gui;\n\
+                  - quit Antigravity manually (⌘Q), then re-run pine agy --gui;\n\
                   - run with --user-data-dir /tmp/agy-tap to launch an isolated instance.",
                 killed,
                 survivors.len(),
@@ -1089,7 +1145,7 @@ async fn run_antigravity_gui(cli: Cli) -> Result<()> {
             ));
         }
         eprintln!(
-            "claudetap: terminated {} Antigravity process(es); relaunching under the proxy.",
+            "pine: terminated {} Antigravity process(es); relaunching under the proxy.",
             killed
         );
     }
@@ -1129,7 +1185,7 @@ async fn run_antigravity_gui(cli: Cli) -> Result<()> {
 
     let session_dir = paths::session_dir(&session_id)?;
     let ca_path = paths::ca_cert_path()?;
-    let banner_text = banner::Banner::new("claudetap · antigravity (gui)")
+    let banner_text = banner::Banner::new("pine · antigravity (gui)")
         .row("session", session_id.clone())
         .row("proxy", proxy_url.clone())
         .row("logs", banner::abbrev_path(&session_dir))
@@ -1163,7 +1219,7 @@ async fn run_antigravity_gui(cli: Cli) -> Result<()> {
         proxy_addr: local.to_string(),
         redact: !cli.no_redact,
         host_filter: hosts,
-        claudetap_version: env!("CARGO_PKG_VERSION").to_string(),
+        pine_version: env!("CARGO_PKG_VERSION").to_string(),
         session_dir: Some(session_dir.display().to_string()),
         ca_cert_path: Some(ca_path.display().to_string()),
         cwd: std::env::current_dir().ok().map(|p| p.display().to_string()),
@@ -1189,7 +1245,7 @@ async fn run_antigravity_gui(cli: Cli) -> Result<()> {
     }
     let elapsed = spawn_instant.elapsed();
     eprintln!(
-        "\nclaudetap: antigravity (gui) exited (code={}, after {:.1}s) — session {}\n           logs at {}",
+        "\npine: antigravity (gui) exited (code={}, after {:.1}s) — session {}\n           logs at {}",
         code.map(|c| c.to_string()).unwrap_or_else(|| "signal".to_string()),
         elapsed.as_secs_f32(),
         session_id,
@@ -1201,14 +1257,14 @@ async fn run_antigravity_gui(cli: Cli) -> Result<()> {
     // env was dropped.
     if elapsed < std::time::Duration::from_secs(3) && code == Some(0) {
         eprintln!(
-            "\nclaudetap: ⚠  antigravity exited almost immediately. Most likely another\n\
+            "\npine: ⚠  antigravity exited almost immediately. Most likely another\n\
              \x20            Antigravity instance was alive and the new launch was forwarded\n\
              \x20            to it via Electron's single-instance lock — dropping our proxy/CA.\n\
              \x20  Try:\n\
              \x20    1. Fully quit Antigravity, then re-run:\n\
-             \x20         pkill -9 -i antigravity && sleep 1 && claudetap agy --gui\n\
+             \x20         pkill -9 -i antigravity && sleep 1 && pine agy --gui\n\
              \x20    2. Use an isolated profile (bypasses the singleton lock):\n\
-             \x20         claudetap agy --gui --user-data-dir /tmp/agy-tap\n"
+             \x20         pine agy --gui --user-data-dir /tmp/agy-tap\n"
         );
     }
 
@@ -1267,7 +1323,7 @@ async fn run_codex(cli: Cli) -> Result<()> {
 
     let session_dir = paths::session_dir(&session_id)?;
     let ca_path = paths::ca_cert_path()?;
-    let banner_text = banner::Banner::new("claudetap · codex")
+    let banner_text = banner::Banner::new("pine · codex")
         .row("session", session_id.clone())
         .row("proxy", proxy_url.clone())
         .row("logs", banner::abbrev_path(&session_dir))
@@ -1300,7 +1356,7 @@ async fn run_codex(cli: Cli) -> Result<()> {
         proxy_addr: local.to_string(),
         redact: !cli.no_redact,
         host_filter: hosts,
-        claudetap_version: env!("CARGO_PKG_VERSION").to_string(),
+        pine_version: env!("CARGO_PKG_VERSION").to_string(),
         session_dir: Some(session_dir.display().to_string()),
         ca_cert_path: Some(ca_path.display().to_string()),
         cwd: std::env::current_dir().ok().map(|p| p.display().to_string()),
@@ -1325,7 +1381,7 @@ async fn run_codex(cli: Cli) -> Result<()> {
         warn!(error = %e, "updating meta.json on shutdown");
     }
     eprintln!(
-        "\nclaudetap: codex exited (code={}) — session {}\n           logs at {}",
+        "\npine: codex exited (code={}) — session {}\n           logs at {}",
         code.map(|c| c.to_string()).unwrap_or_else(|| "signal".to_string()),
         session_id,
         session_dir.display()
@@ -1442,7 +1498,7 @@ fn uname_r() -> Option<String> {
 }
 
 fn track_install_event() {
-    let flag_path = paths::root().unwrap_or_else(|_| dirs::home_dir().unwrap().join(".claudetap")).join(".installed");
+    let flag_path = paths::root().unwrap_or_else(|_| dirs::home_dir().unwrap().join(".pine")).join(".installed");
     if flag_path.exists() {
         return;
     }
@@ -1531,7 +1587,7 @@ fn detect_claude_version(claude_path: &std::path::Path) -> Option<String> {
     if s.is_empty() { None } else { Some(s) }
 }
 
-/// Drop a small text file at `~/.claudetap/last-session` so users can find
+/// Drop a small text file at `~/.pine/last-session` so users can find
 /// the most recent session without scrolling. Append-only? No — this is a
 /// pointer, intentionally overwritten each launch. The session data itself
 /// (traffic.jsonl, bodies, stream) remains on disk forever.
@@ -1578,7 +1634,7 @@ async fn wait_for_shutdown() {
 ///   1st Ctrl-C: terminal already delivered SIGINT to the foreground
 ///               process group; we just print a hint and keep waiting.
 ///   2nd Ctrl-C: send SIGTERM to claude.
-///   3rd Ctrl-C: SIGKILL claude and force-exit claudetap (in case the
+///   3rd Ctrl-C: SIGKILL claude and force-exit pine (in case the
 ///               child can't be reaped, e.g. it's stuck in uninterruptible
 ///               I/O against a broken FUSE/network mount).
 ///
@@ -1615,7 +1671,7 @@ async fn supervise_child(child: &mut tokio::process::Child, pid: Option<u32>) ->
             } => {
                 // Ctrl-\: skip straight to SIGKILL+exit; this is the
                 // documented "get me out NOW" path.
-                eprintln!("\nclaudetap: SIGQUIT — killing claude and exiting.");
+                eprintln!("\npine: SIGQUIT — killing claude and exiting.");
                 if let Some(p) = pid {
                     unsafe { libc::kill(p as i32, libc::SIGKILL); }
                 }
@@ -1633,17 +1689,17 @@ async fn on_signal(count: u32, pid: Option<u32>) {
             // process group, so claude has it. We just inform the user
             // about the escape hatch.
             eprintln!(
-                "\nclaudetap: caught Ctrl-C. Press again to SIGTERM claude, a third time to force-quit."
+                "\npine: caught Ctrl-C. Press again to SIGTERM claude, a third time to force-quit."
             );
         }
         2 => {
-            eprintln!("\nclaudetap: sending SIGTERM to claude. One more Ctrl-C will SIGKILL.");
+            eprintln!("\npine: sending SIGTERM to claude. One more Ctrl-C will SIGKILL.");
             if let Some(p) = pid {
                 unsafe { libc::kill(p as i32, libc::SIGTERM); }
             }
         }
         _ => {
-            eprintln!("\nclaudetap: SIGKILLing claude and force-exiting.");
+            eprintln!("\npine: SIGKILLing claude and force-exiting.");
             if let Some(p) = pid {
                 unsafe { libc::kill(p as i32, libc::SIGKILL); }
             }
@@ -1667,9 +1723,9 @@ async fn supervise_child(child: &mut tokio::process::Child, _pid: Option<u32>) -
             _ = tokio::signal::ctrl_c() => {
                 count += 1;
                 if count == 1 {
-                    eprintln!("\nclaudetap: caught Ctrl-C. Press again to kill claude.");
+                    eprintln!("\npine: caught Ctrl-C. Press again to kill claude.");
                 } else {
-                    eprintln!("\nclaudetap: killing claude.");
+                    eprintln!("\npine: killing claude.");
                     let _ = child.start_kill();
                     let _ = tokio::time::timeout(
                         std::time::Duration::from_secs(1), child.wait()

@@ -47,7 +47,7 @@ class DashboardTests(UploadTests):
     def test_dashboard_and_summary(self):
         response = self.client.get('/')
         self.assertEqual(response.status_code, 200)
-        self.assertIn('Claudetap', response.text)
+        self.assertIn('Pine', response.text)
         self.assertEqual(self.client.get('/v1/summary').status_code,401)
         self.client.post('/v1/chunks', headers=self.headers(), content=b'hello')
         a = self.client.get('/v1/summary', headers=self.headers()).json()

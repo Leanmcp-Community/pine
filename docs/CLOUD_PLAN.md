@@ -1,4 +1,4 @@
-# Claudetap cloud plan
+# Pine cloud plan
 
 1. Preserve local capture: proxy, session layout, and TUI remain independent of cloud availability. Existing files are the durable upload source.
 2. Add CLI configuration, status, disable, one-shot sync, and continuous sync. Persist checkpoints, retry with backoff, deduplicate uploads, handle growing streams and rewritten metadata. Historical sessions require explicit backfill.

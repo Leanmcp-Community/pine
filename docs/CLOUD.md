@@ -15,21 +15,21 @@ Save the printed key securely; it is shown once. The file contains hashes, not k
 
 ```bash
 docker compose -f deploy/compose.yaml up -d --build server
-export CLAUDETAP_UPLOAD_KEY='<printed key>'
-claudetap cloud configure --endpoint http://127.0.0.1:8080
-unset CLAUDETAP_UPLOAD_KEY
-claudetap cloud sync --once
-claudetap cloud status
-claudetap cloud sync
+export PINE_UPLOAD_KEY='<printed key>'
+pine cloud configure --endpoint http://127.0.0.1:8080
+unset PINE_UPLOAD_KEY
+pine cloud sync --once
+pine cloud status
+pine cloud sync
 ```
 
-Configuration stores the key in a mode-0600 file under CLAUDETAP_HOME. Hostname is a label; a persistent ULID identifies the device. The server maps each key to an organization. Use a distinct key per device for independent revocation. Replacing a key on a configured client is for rotation within the same organization; use a separate CLAUDETAP_HOME when switching organization or server.
+Configuration stores the key in a mode-0600 file under PINE_HOME. Hostname is a label; a persistent ULID identifies the device. The server maps each key to an organization. Use a distinct key per device for independent revocation. Replacing a key on a configured client is for rotation within the same organization; use a separate PINE_HOME when switching organization or server.
 
 Sync includes all existing and new sessions by default. Already acknowledged data is skipped. `cloud sync --backfill` is accepted for compatibility. Configure displays the content upload notice. Prompts, responses, body binaries, host metadata and file paths can contain private content. Structured credential fields and header pairs are redacted for upload; arbitrary strings and binary bodies are preserved and are **not guaranteed secret-free**. The CA directory is never scanned. Local captures are never changed or deleted.
 
 The worker scans sessions in bounded chunks, only uploads complete JSONL lines and retries with exponential backoff capped at 60 seconds. Lines larger than 4 MiB produce an error instead of being silently skipped. Metadata is uploaded as versioned snapshots. A crash before saving the local checkpoint repeats an idempotent upload. A single worker lock prevents concurrent checkpoint writers on Unix. No Windows service or concurrency support is promised in this first release. Status reports tracked files and last successful pass, not a complete backlog estimate. Errors appear on the worker's stderr.
 
-`claudetap cloud disable` stops uploading on the next pass. An in-flight pass can finish; stop the worker/service for immediate shutdown. Run configure to re-enable it. Revocation is immediate for subsequent server requests: remove the corresponding SHA256 entry from keys.json. The server reloads keys per request.
+`pine cloud disable` stops uploading on the next pass. An in-flight pass can finish; stop the worker/service for immediate shutdown. Run configure to re-enable it. Revocation is immediate for subsequent server requests: remove the corresponding SHA256 entry from keys.json. The server reloads keys per request.
 
 ## Background service
 
@@ -61,9 +61,9 @@ An actively uploaded session can be incomplete; consumers should retry later. He
 
 ```bash
 cargo test
-python3 -m venv /tmp/claudetap-test
-/tmp/claudetap-test/bin/pip install -r server/requirements.txt httpx
-(cd server && /tmp/claudetap-test/bin/python -m unittest -v)
+python3 -m venv /tmp/pine-test
+/tmp/pine-test/bin/pip install -r server/requirements.txt httpx
+(cd server && /tmp/pine-test/bin/python -m unittest -v)
 ```
 
 See CLOUD_PLAN.md for the remaining managed storage, organization login, dashboard, release packaging and marketplace milestones. Cloud-provider scripts require account-level smoke tests; they are deployment helpers, not verified marketplace integrations.

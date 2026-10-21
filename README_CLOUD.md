@@ -42,9 +42,9 @@ Docker Desktop (or Docker Engine with the Compose plugin).
 4. Connect the client:
 
    ```bash
-   export CLAUDETAP_UPLOAD_KEY='paste-your-key-here'
-   claudetap cloud configure --endpoint http://127.0.0.1:8080
-   unset CLAUDETAP_UPLOAD_KEY
+   export PINE_UPLOAD_KEY='paste-your-key-here'
+   pine cloud configure --endpoint http://127.0.0.1:8080
+   unset PINE_UPLOAD_KEY
    ```
 
    Sync includes **all existing and new sessions** by default and skips already
@@ -55,18 +55,18 @@ Docker Desktop (or Docker Engine with the Compose plugin).
 5. Run the uploader in a separate terminal:
 
    ```bash
-   claudetap cloud sync
+   pine cloud sync
    ```
 
-   Continue using `claudetap` normally in another terminal. Check upload status
+   Continue using `pine` normally in another terminal. Check upload status
    with:
 
    ```bash
-   claudetap cloud status
+   pine cloud status
    ```
 
    For a single upload pass instead of a continuous worker, use
-   `claudetap cloud sync --once`.
+   `pine cloud sync --once`.
 
 6. Optionally install the uploader as a background service:
 
@@ -88,7 +88,7 @@ Docker Desktop (or Docker Engine with the Compose plugin).
 Disable uploads while keeping local capture working:
 
 ```bash
-claudetap cloud disable
+pine cloud disable
 ```
 
 An in-flight upload pass can finish. Stop the worker or uninstall its service
@@ -129,7 +129,7 @@ validation was not completed because Docker's daemon was stopped during
 implementation. AWS/GCP deployment scripts have not been exercised against a
 cloud account.
 
-Run `claudetap cloud --help` for the available uploader commands.
+Run `pine cloud --help` for the available uploader commands.
 
 ### Local management and analysis UI
 
@@ -153,15 +153,15 @@ For automatic syncing, configure your key once as above, then run:
 
 ```bash
 python3 deploy/client-service.py install
-claudetap cloud status
+pine cloud status
 ```
 
 The user service automatically starts the uploader during your login lifecycle.
-On macOS, inspect it with `launchctl print gui/$(id -u)/com.claudetap.sync`.
+On macOS, inspect it with `launchctl print gui/$(id -u)/com.pine.sync`.
 
 ### Sync progress
 
-`claudetap cloud sync` shows a progress bar for each session with new uploads,
+`pine cloud sync` shows a progress bar for each session with new uploads,
 including the current file and acknowledged source bytes. Interactive terminals
 update the current line; redirected output uses plain log lines. Percentages
 refer to the files observed at the beginning of that scan, not the eventual
@@ -180,12 +180,12 @@ on each scan; local data and previously uploaded chunks are preserved.
 Stop an existing foreground or background uploader with:
 
 ```bash
-claudetap cloud stop
+pine cloud stop
 ```
 
 This requests a clean stop after the current request (up to its 30-second
 timeout). It preserves checkpoints. The installed service does not restart a
-successfully stopped worker. Once it has exited, run `claudetap cloud sync` for
+successfully stopped worker. Once it has exited, run `pine cloud sync` for
 foreground progress, or `python3 deploy/client-service.py install` to restart
 the background service. A new uploader clears the previous stop request.
 
@@ -212,7 +212,7 @@ not deleted when a limit is lowered.
 - `server/index.html`: web UI.
 - `server/Dockerfile`: server image.
 - `deploy/compose.yaml`: Docker services and persistent mounts.
-- `deploy/config/config.yaml`: administrator policy, mounted read-only at `/etc/claudetap/config.yaml`.
+- `deploy/config/config.yaml`: administrator policy, mounted read-only at `/etc/pine/config.yaml`.
 - `deploy/secrets/keys.json`: organization key hashes, mounted at `/run/secrets/keys.json`.
 - Docker volume `deploy_capture`: uploaded data and indexes, in `/data/capture.sqlite`
   inside the container (including SQLite WAL files while running).
@@ -220,7 +220,7 @@ not deleted when a limit is lowered.
 On Docker Desktop, that volume lives inside Docker's Linux VM, not directly in
 your macOS repository. Inspect it with `docker volume inspect deploy_capture`.
 Do not delete the volume or run `docker compose down -v` unless you intend to
-remove the uploaded data. Local original captures remain under `~/.claudetap/sessions/`.
+remove the uploaded data. Local original captures remain under `~/.pine/sessions/`.
 
 For the proposed Homebrew installation and `brew services` workflow, see
-[macOS Homebrew setup](docs/HOMEBREW.md). The tap is hosted in `Leanmcp-Community/claudetap`.
+[macOS Homebrew setup](docs/HOMEBREW.md). The tap is hosted in `Leanmcp-Community/pine`.

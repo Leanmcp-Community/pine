@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-urls.py — list all URLs from a claudetap session, time-ascending.
+urls.py — list all URLs from a pine session, time-ascending.
 
 Usage:
   python3 urls.py <session-id>
@@ -12,7 +12,7 @@ Usage:
 import argparse, json, sys
 from pathlib import Path
 
-SESSIONS = Path.home() / ".claudetap" / "sessions"
+SESSIONS = Path.home() / ".pine" / "sessions"
 
 DIM   = "\033[2;90m"
 RESET = "\033[0m"
@@ -41,7 +41,7 @@ def resolve(sid):
     print(f"Not found: {sid}"); sys.exit(1)
 
 def main():
-    ap = argparse.ArgumentParser(description="List URLs from a claudetap session")
+    ap = argparse.ArgumentParser(description="List URLs from a pine session")
     ap.add_argument("session", help="Session ID or 'latest'")
     ap.add_argument("--method", help="Filter by method")
     ap.add_argument("--host", help="Filter by hostname substring")

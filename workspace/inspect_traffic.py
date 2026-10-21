@@ -1,10 +1,10 @@
-"""Survey a captured claudetap session for streaming / WebSocket signals.
+"""Survey a captured pine session for streaming / WebSocket signals.
 
 Usage:
     python workspace/inspect_traffic.py [SESSION_ID]
 
 If SESSION_ID is omitted, picks the most-recently-modified session under
-~/.claudetap/sessions/.
+~/.pine/sessions/.
 """
 from __future__ import annotations
 
@@ -36,7 +36,7 @@ def header(headers: list, name: str) -> str:
 
 
 def main() -> int:
-    root = Path.home() / ".claudetap" / "sessions"
+    root = Path.home() / ".pine" / "sessions"
     if len(sys.argv) > 1:
         sess_dir = root / sys.argv[1]
     else:
@@ -110,7 +110,7 @@ def main() -> int:
             print(f"  {c:>4}  {h}")
 
     # Sec-WebSocket-Key is a strong signal that the client tried to upgrade,
-    # even when claudetap's hop-by-hop stripping removed Upgrade/Connection
+    # even when pine's hop-by-hop stripping removed Upgrade/Connection
     # before logging.
     print("\nAll entries with Sec-WebSocket-Key in request headers:")
     for line in traffic.read_text().splitlines():

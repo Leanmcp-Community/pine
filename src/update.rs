@@ -1,8 +1,8 @@
-//! `claudetap update` — downloads the latest GitHub release binary for the
+//! `pine update` — downloads the latest GitHub release binary for the
 //! current platform and replaces the running executable in place.
 //!
 //! Version identity is the git commit hash embedded by `build.rs` (see
-//! `CLAUDETAP_VERSION` in main.rs), not a hand-bumped semver number: releases
+//! `PINE_VERSION` in main.rs), not a hand-bumped semver number: releases
 //! are cut continuously from `main`, so "up to date" means "same commit",
 //! checked by comparing `--version` output byte-for-byte.
 
@@ -13,9 +13,9 @@ use std::process::{Command, Stdio};
 use anyhow::{bail, Context, Result};
 use sha2::{Digest, Sha256};
 
-use crate::CLAUDETAP_VERSION;
+use crate::PINE_VERSION;
 
-const REPO: &str = "Leanmcp-Community/claudetap";
+const REPO: &str = "Leanmcp-Community/pine";
 
 fn target_triple() -> Result<&'static str> {
     Ok(match (std::env::consts::OS, std::env::consts::ARCH) {
@@ -24,7 +24,7 @@ fn target_triple() -> Result<&'static str> {
         ("macos", "x86_64") => "x86_64-apple-darwin",
         ("macos", "aarch64") => "aarch64-apple-darwin",
         (os, arch) => bail!(
-            "no prebuilt claudetap binary for {os}/{arch}; reinstall from source with `cargo install --path .`"
+            "no prebuilt pine binary for {os}/{arch}; reinstall from source with `cargo install --path .`"
         ),
     })
 }
@@ -34,7 +34,7 @@ fn target_triple() -> Result<&'static str> {
 fn reject_managed_install(exe: &std::path::Path) -> Result<()> {
     let path = exe.to_string_lossy();
     if path.contains("/Cellar/") || path.contains("/homebrew/") {
-        bail!("this binary is managed by Homebrew; run `brew upgrade claudetap` instead");
+        bail!("this binary is managed by Homebrew; run `brew upgrade pine` instead");
     }
     Ok(())
 }
@@ -48,7 +48,7 @@ pub async fn run() -> Result<()> {
         .parent()
         .context("running executable has no parent directory")?;
 
-    let asset = format!("claudetap-{target}.tar.gz");
+    let asset = format!("pine-{target}.tar.gz");
     let base = format!("https://github.com/{REPO}/releases/latest/download");
     let client = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::limited(10))
@@ -84,7 +84,7 @@ pub async fn run() -> Result<()> {
         bail!("checksum mismatch for {asset}: expected {expected}, got {actual}");
     }
 
-    let tmp_dir = exe_dir.join(format!(".claudetap-update-{}", ulid::Ulid::new()));
+    let tmp_dir = exe_dir.join(format!(".pine-update-{}", ulid::Ulid::new()));
     std::fs::create_dir(&tmp_dir)
         .with_context(|| format!("creating {} (is {} writable?)", tmp_dir.display(), exe_dir.display()))?;
     let cleanup = scopeguard(&tmp_dir);
@@ -92,7 +92,7 @@ pub async fn run() -> Result<()> {
     let mut tar = Command::new("tar")
         .args(["-xzf", "-", "-C"])
         .arg(&tmp_dir)
-        .arg("claudetap")
+        .arg("pine")
         .stdin(Stdio::piped())
         .spawn()
         .context("spawning tar (required on PATH to unpack the release)")?;
@@ -106,7 +106,7 @@ pub async fn run() -> Result<()> {
         bail!("tar exited with {status}");
     }
 
-    let new_bin = tmp_dir.join("claudetap");
+    let new_bin = tmp_dir.join("pine");
     std::fs::set_permissions(&new_bin, std::fs::Permissions::from_mode(0o755))?;
 
     let output = Command::new(&new_bin)
@@ -117,7 +117,7 @@ pub async fn run() -> Result<()> {
         bail!("downloaded binary failed to run (--version exited with {})", output.status);
     }
     let new_version = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    let current_version = format!("claudetap {CLAUDETAP_VERSION}");
+    let current_version = format!("pine {PINE_VERSION}");
 
     if new_version == current_version {
         drop(cleanup);

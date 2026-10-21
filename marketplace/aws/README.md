@@ -12,7 +12,7 @@ blocks them.
 
 ## Delivery model
 
-Proposed first product: a customer-hosted, single-node Claudetap server delivered
+Proposed first product: a customer-hosted, single-node Pine server delivered
 as an Ubuntu-based x86_64 AMI. The Mac client is installed separately through
 Homebrew. This matches the current SQLite/persistent-disk architecture. Hosted
 SaaS procurement would require a separate onboarding and entitlement integration.
@@ -20,7 +20,7 @@ Pricing and seller identity must be provided by the owner before submission.
 
 ## Listing draft
 
-Name: Claudetap Server
+Name: Pine Server
 
 Short description: Store and inspect AI tool captures in your own AWS account,
 with a Mac client that captures locally and syncs using organization credentials.
@@ -30,7 +30,7 @@ Highlights:
 - Resumable uploads with server-controlled session size limits.
 - Browser-based session inspection, downloads, and request-level analysis.
 
-Description: Claudetap Server receives captured AI traffic from Claudetap clients
+Description: Pine Server receives captured AI traffic from Pine clients
 and stores it on a persistent server disk in the customer's AWS account. Clients
 retain their original captures and upload eligible sessions using organization
 keys. Administrators configure upload policy in config.yaml. The included web
@@ -61,7 +61,7 @@ pricing, regions and supported instances: owner-supplied, not yet finalized.
    and test buyer subscription and launch before requesting public availability.
 
 The existing deploy/aws.sh creates a generic VM; it is not a prepared Marketplace
-AMI or submission tool. Do not submit that base Ubuntu AMI as Claudetap.
+AMI or submission tool. Do not submit that base Ubuntu AMI as Pine.
 
 ## Account and publication steps
 

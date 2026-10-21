@@ -1,1 +1,1 @@
-# claudetap TUI — terminal session browser
+# pine TUI — terminal session browser

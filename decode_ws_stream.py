@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Decode ClaudeTap/Codex websocket capture files.
+Decode Pine/Codex websocket capture files.
 
 These `*.ws.jsonl` files store websocket frames with:
 - base64-encoded payload bytes
@@ -104,7 +104,7 @@ def decode_stream(path: Path, only_dir: str | None, raw: bool) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Decode ClaudeTap/Codex websocket capture files."
+        description="Decode Pine/Codex websocket capture files."
     )
     parser.add_argument("path", type=Path, help="Path to a *.ws.jsonl file")
     parser.add_argument(

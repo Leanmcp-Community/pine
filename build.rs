@@ -1,7 +1,7 @@
 //! Build script — embeds the current git commit (and dirty flag) into the
-//! binary as `CLAUDETAP_GIT_HASH`, so `claudetap --version` can show e.g.
-//!     claudetap 0.2.0 (a1b2c3d4e5f6)
-//!     claudetap 0.2.0 (a1b2c3d4e5f6-dirty)
+//! binary as `PINE_GIT_HASH`, so `pine --version` can show e.g.
+//!     pine 0.2.0 (a1b2c3d4e5f6)
+//!     pine 0.2.0 (a1b2c3d4e5f6-dirty)
 //!
 //! Falls back to `unknown` if `git` is missing or this is built outside a
 //! checkout (e.g. from a `cargo install` source tarball).
@@ -20,7 +20,7 @@ fn main() {
     };
 
     let suffix = if dirty { "-dirty" } else { "" };
-    println!("cargo:rustc-env=CLAUDETAP_GIT_HASH={hash}{suffix}");
+    println!("cargo:rustc-env=PINE_GIT_HASH={hash}{suffix}");
 
     // Load POSTHOG_API_KEY from .env if present, otherwise set the default key
     let mut posthog_key = "phc_EoMHKFbx6j2wUFsf8ywqgHntY4vEXC3ZzLFoPJVjRRT".to_string();

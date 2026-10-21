@@ -11,5 +11,5 @@ aws ec2 run-instances --region "$AWS_REGION" --image-id "$AMI_ID" \
   --subnet-id "$SUBNET_ID" --security-group-ids "$SECURITY_GROUP_ID" \
   --associate-public-ip-address --metadata-options HttpTokens=required \
   --block-device-mappings '[{"DeviceName":"/dev/sda1","Ebs":{"VolumeSize":40,"VolumeType":"gp3","Encrypted":true,"DeleteOnTermination":false}}]' \
-  --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=claudetap}]' \
+  --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=pine}]' \
   --query 'Instances[0].InstanceId' --output text

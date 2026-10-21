@@ -14,6 +14,6 @@ read -r -p "Type PUBLISH to continue: " confirm
 aws marketplace-catalog start-change-set \
   --profile marketplace --region us-east-1 \
   --catalog AWSMarketplace \
-  --change-set-name "Claudetap Server public release" \
+  --change-set-name "Pine Server public release" \
   --change-set file://changeset.json \
   --output json | tee submit-result.json

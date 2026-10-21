@@ -30,8 +30,8 @@ jobs:
       - name: Run tests
         run: cargo +stable test --locked
       - name: Verify source installation
-        run: cargo +stable install --path . --locked --root "$RUNNER_TEMP/claudetap-install"
+        run: cargo +stable install --path . --locked --root "$RUNNER_TEMP/pine-install"
       - name: Check installed CLI
         run: |
-          "$RUNNER_TEMP/claudetap-install/bin/claudetap" --version
-          "$RUNNER_TEMP/claudetap-install/bin/claudetap" --help
+          "$RUNNER_TEMP/pine-install/bin/pine" --version
+          "$RUNNER_TEMP/pine-install/bin/pine" --help

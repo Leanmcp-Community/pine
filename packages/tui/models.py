@@ -1,4 +1,4 @@
-"""Data classes for claudetap session data."""
+"""Data classes for pine session data."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ class SessionMeta:
     entry_count: int
     session_dir: Path
     proxy_addr: str = ""
-    claudetap_version: str = ""
+    pine_version: str = ""
     claude_pid: int = 0
     hostname: str = ""
     os_name: str = ""
@@ -49,7 +49,7 @@ class SessionMeta:
             entry_count=entry_count,
             session_dir=d,
             proxy_addr=meta.get("proxy_addr", ""),
-            claudetap_version=meta.get("claudetap_version", ""),
+            pine_version=meta.get("pine_version", ""),
             claude_pid=meta.get("claude_pid", 0),
             hostname=meta.get("hostname", ""),
             os_name=meta.get("os", ""),
@@ -163,7 +163,7 @@ class TrafficEntry:
 
         - response status 101 (successful upgrade), OR
         - presence of `Sec-WebSocket-Key` in the request headers (the
-          client tried to upgrade — even if claudetap currently strips
+          client tried to upgrade — even if pine currently strips
           `Upgrade`/`Connection` and the server replied 404/426).
         """
         if self.status == 101:

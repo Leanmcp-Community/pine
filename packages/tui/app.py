@@ -1,4 +1,4 @@
-"""claudetap TUI — main application."""
+"""pine TUI — main application."""
 
 from __future__ import annotations
 
@@ -11,13 +11,13 @@ from .screens.sessions import SessionListScreen
 from .screens.requests import RequestListScreen
 from .models import SessionMeta
 
-SESSIONS_DIR = Path.home() / ".claudetap" / "sessions"
+SESSIONS_DIR = Path.home() / ".pine" / "sessions"
 
 
-class ClaudetapApp(App):
-    """Terminal UI for browsing claudetap session logs."""
+class PineApp(App):
+    """Terminal UI for browsing pine session logs."""
 
-    TITLE = "claudetap"
+    TITLE = "pine"
     SUB_TITLE = "session browser"
     CSS_PATH = "theme.tcss"
 

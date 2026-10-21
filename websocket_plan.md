@@ -36,7 +36,7 @@ Sec-WebSocket-Version: 13
 Sec-WebSocket-Extensions: permessage-deflate; client_max_window_bits
 ```
 
-Every one returns **`404`** because claudetap currently strips
+Every one returns **`404`** because pine currently strips
 `Connection`/`Upgrade` from the forwarded request (per the hop-by-hop
 strip list at `src/proxy.rs:657-674`). Devin's edge sees a plain GET on a
 WS-only endpoint and rejects it. The 7 entries are the Cascade client's
@@ -116,7 +116,7 @@ already shows (`↑`) gets progressively more accurate as we go.
    side) to get two raw `Upgraded` byte streams.
 5. For Phase A only, just `tokio::io::copy_bidirectional` between them.
    No frame decode yet — but the upgrade succeeds and Cascade chat
-   actually works through claudetap.
+   actually works through pine.
 
 After Phase A: in the TUI, all 7 of those `↑` 404s become `↑` 101s, the
 real session works, and we can move on to actually capturing payload.

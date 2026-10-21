@@ -38,7 +38,7 @@ def main() -> int:
         response={"status": 101, "headers": [["upgrade", "websocket"]]},
     )
     case(
-        "WS attempt that got 404 (current Devin/claudetap state)",
+        "WS attempt that got 404 (current Devin/pine state)",
         request={
             "headers": [
                 ["sec-websocket-key", "x3JJHMbDL1EzLkh9GBhXDw=="],

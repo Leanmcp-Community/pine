@@ -12,7 +12,7 @@ use std::{
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
-    /// Enable cloud uploads. Key is read from CLAUDETAP_UPLOAD_KEY.
+    /// Enable cloud uploads. Key is read from PINE_UPLOAD_KEY.
     Configure {
         #[arg(long)]
         endpoint: String,
@@ -68,7 +68,7 @@ fn save<T: Serialize>(path: &Path, data: &T) -> Result<()> {
 }
 fn config() -> Result<Config> {
     Ok(serde_json::from_slice(
-        &std::fs::read(file("cloud.json")?).context("Run claudetap cloud configure first")?,
+        &std::fs::read(file("cloud.json")?).context("Run pine cloud configure first")?,
     )?)
 }
 fn state() -> Result<State> {
@@ -195,8 +195,8 @@ pub async fn run(cmd: Command) -> Result<()> {
             {
                 bail!("Use an origin URL without credentials, path, query or fragment");
             }
-            let key = std::env::var("CLAUDETAP_UPLOAD_KEY")
-                .context("Set CLAUDETAP_UPLOAD_KEY to your organization upload key")?;
+            let key = std::env::var("PINE_UPLOAD_KEY")
+                .context("Set PINE_UPLOAD_KEY to your organization upload key")?;
             if key.len() < 32 {
                 bail!("Upload key must contain at least 32 characters");
             }
@@ -209,7 +209,7 @@ pub async fn run(cmd: Command) -> Result<()> {
                 .as_ref()
                 .is_some_and(|c| c.endpoint != endpoint.trim_end_matches('/'))
             {
-                bail!("Changing servers requires a separate CLAUDETAP_HOME to keep checkpoints isolated");
+                bail!("Changing servers requires a separate PINE_HOME to keep checkpoints isolated");
             }
             let c = Config {
                 endpoint: endpoint.trim_end_matches('/').into(),
@@ -227,7 +227,7 @@ pub async fn run(cmd: Command) -> Result<()> {
                 enabled: true,
             };
             save(&file("cloud.json")?, &c)?;
-            println!("Cloud enabled. Captured prompts, bodies and machine metadata will be uploaded. Structured credentials are filtered; arbitrary content may contain secrets. Run claudetap cloud sync.");
+            println!("Cloud enabled. Captured prompts, bodies and machine metadata will be uploaded. Structured credentials are filtered; arbitrary content may contain secrets. Run pine cloud sync.");
         }
         Command::Stop => {
             #[cfg(unix)]
@@ -567,7 +567,7 @@ mod tests {
     use super::*;
     #[test]
     fn size_limit_includes_nested_files_and_exact_boundary() {
-        let dir = std::env::temp_dir().join(format!("claudetap-size-{}", ulid::Ulid::new()));
+        let dir = std::env::temp_dir().join(format!("pine-size-{}", ulid::Ulid::new()));
         std::fs::create_dir_all(dir.join("bodies")).unwrap();
         let f = std::fs::File::create(dir.join("bodies/large.bin")).unwrap();
         f.set_len(200 * 1024 * 1024 - 1).unwrap();

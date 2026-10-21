@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-tap.py — browse claudetap session logs.
+tap.py — browse pine session logs.
 
 Usage:
   python3 tap.py                        # list all sessions (newest first)
@@ -47,7 +47,7 @@ def blue(t):   return c(BLUE, t)
 def magenta(t):return c(MAGENTA, t)
 def cyan(t):   return c(CYAN, t)
 
-SESSIONS_DIR = Path.home() / ".claudetap" / "sessions"
+SESSIONS_DIR = Path.home() / ".pine" / "sessions"
 
 # ── Body decoding ────────────────────────────────────────────────────────────
 
@@ -342,7 +342,7 @@ def list_sessions():
     # Sort by session ID descending (ULID = lexicographic time order)
     sessions.sort(key=lambda x: x[0], reverse=True)
 
-    print(f"\n{bold('claudetap sessions')}  {dim(str(SESSIONS_DIR))}\n")
+    print(f"\n{bold('pine sessions')}  {dim(str(SESSIONS_DIR))}\n")
     print(f"  {'SESSION ID':<30}  {'STARTED':<22}  {'TARGET':<12}  {'ENTRIES'}")
     print(f"  {dim('─'*28)}  {dim('─'*20)}  {dim('─'*10)}  {dim('─'*7)}")
 
@@ -535,7 +535,7 @@ def resolve_session(sid: str) -> Path:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Browse claudetap session logs.",
+        description="Browse pine session logs.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=textwrap.dedent("""
           Examples:
@@ -572,14 +572,14 @@ def main():
             meta = json.loads(meta_path.read_text())
             started = meta.get("started_at","")[:19].replace("T"," ")
             target  = meta.get("target","?")
-            ver     = meta.get("claudetap_version","?")
+            ver     = meta.get("pine_version","?")
             pid     = meta.get("claude_pid","?")
             hf      = ",".join(meta.get("host_filter",[]))
             print(f"\n{bold('Session')} {cyan(session_dir.name)}")
             print(f"  {dim('target:')}   {yellow(target)}")
             print(f"  {dim('started:')}  {started}")
             print(f"  {dim('hosts:')}    {hf}")
-            print(f"  {dim('pid:')}      {pid}   {dim('claudetap:')} {ver}")
+            print(f"  {dim('pid:')}      {pid}   {dim('pine:')} {ver}")
             print(f"  {dim('logs:')}     {session_dir}")
         except Exception:
             pass

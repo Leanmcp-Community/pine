@@ -5,7 +5,7 @@ services:
     volumes:
       - capture:/data
       - ./secrets:/run/secrets:ro
-      - ./config:/etc/claudetap:ro
+      - ./config:/etc/pine:ro
     ports:
       - '127.0.0.1:8080:8080'
   tls:

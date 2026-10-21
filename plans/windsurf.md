@@ -1,9 +1,9 @@
-# Plan — Windsurf support (`windsurftap` / `claudetap --target windsurf`)
+# Plan — Windsurf support (`windsurftap` / `pine --target windsurf`)
 
 Goal: capture every HTTPS request/response Windsurf (Cognition's VS Code fork
 Electron app) makes — to `*.codeium.com`, `*.windsurf.com`, `*.cognition.dev`,
 model providers it proxies through, telemetry, auth, marketplace, etc. — into
-`~/.claudetap/sessions/<id>/` the same way we already do for Claude Code.
+`~/.pine/sessions/<id>/` the same way we already do for Claude Code.
 
 The proxy core (`proxy.rs`, `ca.rs`, `log.rs`, `sse.rs`) is already
 target-agnostic — it MITMs whatever connects to it. The work is almost entirely
@@ -44,15 +44,15 @@ Two viable shapes; recommend (a):
 **(a) Single binary, `--target` flag (preferred)**
 
 ```
-claudetap [--target claude|windsurf] [common flags] [-- <child args>]
-claudetap windsurf [common flags] [-- <windsurf args>]   # subcommand alias
+pine [--target claude|windsurf] [common flags] [-- <child args>]
+pine windsurf [common flags] [-- <windsurf args>]   # subcommand alias
 ```
 
 - Default `--target claude` keeps current behavior bit-for-bit.
 - `--target windsurf` swaps:
   - default host list → Windsurf hosts (§4)
   - launcher → `launcher::windsurf::spawn` (§3)
-  - banner title → "claudetap · windsurf"
+  - banner title → "pine · windsurf"
 - New flags scoped to windsurf:
   - `--windsurf-bin <PATH>` (defaults to `which windsurf`, then the standard
     install paths in §3.1)
@@ -65,7 +65,7 @@ Cleaner UX, but doubles release surface and divergent CLI. Skip unless we
 later split into a plugin model.
 
 Rename the crate description from "Claude Code's HTTPS traffic" to "Claude
-Code & Windsurf HTTPS traffic". Keep the binary name `claudetap`; add
+Code & Windsurf HTTPS traffic". Keep the binary name `pine`; add
 `windsurftap` as a thin alias (cargo `[[bin]]` that calls `main` with
 `--target windsurf` injected) for ergonomics.
 
@@ -113,7 +113,7 @@ NO_PROXY=localhost,127.0.0.1,::1
 NODE_EXTRA_CA_CERTS=<ca pem>          # for Node-side / extension host
 SSL_CERT_FILE=<ca pem>                # belt-and-braces for child procs
 GRPC_DEFAULT_SSL_ROOTS_FILE_PATH=...  # for any gRPC clients (Codeium has used gRPC)
-CLAUDETAP_SESSION=<ulid>
+PINE_SESSION=<ulid>
 ```
 
 CLI args appended before `--`:
@@ -180,7 +180,7 @@ const WINDSURF_HOSTS: &[&str] = &[
 
 **Action item before shipping**: validate this list by running Windsurf once
 with `--passthrough-only-logged=false` (default, blind-tunnel everything) and
-inspecting `~/.claudetap/sessions/<id>/traffic.jsonl` for which hosts the
+inspecting `~/.pine/sessions/<id>/traffic.jsonl` for which hosts the
 CONNECT log shows. Add anything we missed; remove anything that's never seen.
 Treat the list above as a starting hypothesis, not gospel.
 
@@ -188,13 +188,13 @@ Treat the list above as a starting hypothesis, not gospel.
 
 ## 5. CA trust — the real UX problem
 
-Today `claudetap ca path` prints the path; the user is expected to do nothing
+Today `pine ca path` prints the path; the user is expected to do nothing
 because Bun honors `SSL_CERT_FILE`. For Chromium that doesn't work.
 
-Add `claudetap ca trust` / `claudetap ca untrust`:
+Add `pine ca trust` / `pine ca untrust`:
 
 - **macOS**: `security add-trusted-cert -d -r trustRoot -k ~/Library/Keychains/login.keychain-db <ca.pem>`
-  (no sudo, user keychain). Removal: `security delete-certificate -c "claudetap Root CA"`.
+  (no sudo, user keychain). Removal: `security delete-certificate -c "pine Root CA"`.
 - **Linux**: copy CA into `~/.pki/nssdb` via `certutil` (NSS — Chromium's
   store), AND `/usr/local/share/ca-certificates/` + `update-ca-certificates`
   for system-wide. NSS path doesn't need root; system path does. Print which
@@ -204,7 +204,7 @@ Add `claudetap ca trust` / `claudetap ca untrust`:
 
 Print clearly which keychain we're touching, and how to undo.
 
-`claudetap --target windsurf` should, on first run, **detect that the CA is
+`pine --target windsurf` should, on first run, **detect that the CA is
 not OS-trusted** and either auto-run `ca trust` (with confirmation) or print
 the exact command and exit. Don't silently launch Windsurf and have every
 request fail with `NET::ERR_CERT_AUTHORITY_INVALID`.
@@ -269,7 +269,7 @@ block when `--target windsurf` (or always — it's cheap):
 /Applications/Windsurf.app/Contents/MacOS/Electron \
   --proxy-server=http://127.0.0.1:<port> \
   --proxy-bypass-list='<-loopback>;localhost;127.0.0.1'
-# (CA must be trusted in the OS keychain — run: claudetap ca trust)
+# (CA must be trusted in the OS keychain — run: pine ca trust)
 ```
 
 ---
@@ -284,17 +284,17 @@ block when `--target windsurf` (or always — it's cheap):
 3. Implement `launcher::windsurf::resolve_windsurf` (path search) and
    `spawn` (env + Chromium switches + process group). Implement
    "is Windsurf already running" detection.
-4. Implement `claudetap ca trust` / `ca untrust` per-platform. macOS first
+4. Implement `pine ca trust` / `ca untrust` per-platform. macOS first
    (matches our test box), then Linux, then Windows.
 5. First-run trust check on `--target windsurf`: bail with a clear error if
-   the CA isn't OS-trusted, suggesting `claudetap ca trust`.
+   the CA isn't OS-trusted, suggesting `pine ca trust`.
 6. Default Windsurf host list (§4). Run a discovery session with the list
    wide-open, harvest CONNECT log, prune. Commit the pruned list.
 7. `SessionMeta` generalization with serde aliases (§7). Bump
-   `claudetap_version`; old logs must still deserialize — add a unit test.
+   `pine_version`; old logs must still deserialize — add a unit test.
 8. README / `--help` updates. Drop a short "Windsurf" section pointing at
-   `claudetap ca trust` as a prerequisite.
-9. Manual smoke: launch Windsurf via `claudetap --target windsurf`, sign in,
+   `pine ca trust` as a prerequisite.
+9. Manual smoke: launch Windsurf via `pine --target windsurf`, sign in,
    ask Cascade something, accept a completion, install an extension.
    Confirm `traffic.jsonl` has request/response bodies for each step and no
    `tunnel-only` rows for hosts we expected to MITM.
@@ -317,7 +317,7 @@ block when `--target windsurf` (or always — it's cheap):
 - **Login flows that open a browser**: the OAuth callback hits the user's
   default browser, not Windsurf, so we won't capture the redirect. The
   token-exchange call back into Windsurf *will* be captured. Acceptable.
-- **Non-isolated profile**: if the user runs `claudetap --target windsurf`
+- **Non-isolated profile**: if the user runs `pine --target windsurf`
   on their daily-driver Windsurf, our proxy + CA-trust changes affect their
   real install. Document `--user-data-dir` for safer experimentation.
 

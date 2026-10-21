@@ -1,4 +1,4 @@
-# Claudetap Server — AWS Marketplace publication TODO
+# Pine Server — AWS Marketplace publication TODO
 
 Account `187692046617` · profile `marketplace` · product `prod-lfxlsiyd4wqnq`
 Change set `9p8ywhtd65vfus0mp666ztmzp` FAILED 2026-09-08 13:53:25Z; see step 1.
@@ -35,7 +35,7 @@ time ./workspace/marketplace_publish/01_submit.sh
 ./workspace/marketplace_publish/02_status.sh
 ```
 
-`03_upload_logo.sh` creates bucket `claudetap-marketplace-assets-187692046617`
+`03_upload_logo.sh` creates bucket `pine-marketplace-assets-187692046617`
 with a public-read policy scoped to that bucket, uploads `logo.png`, verifies it
 returns HTTP 200, and records the URL. It prints the image dimensions — confirm
 they are between 110 and 10000 px per side, since AWS enforces that and the
@@ -96,7 +96,7 @@ cannot go public without them.
 1. Open the [AWS Marketplace Management Portal](https://us-east-1.console.aws.amazon.com/partnercentral/home)
    and sign in to the seller account.
 2. Go to the [**Server products**](https://aws.amazon.com/marketplace/management/products/server)
-   page and, on the **Current server product** tab, select **Claudetap Server**.
+   page and, on the **Current server product** tab, select **Pine Server**.
 3. From the **Request changes** dropdown, choose **Update visibility**.
 4. Choose **Submit change request**.
 5. On the **Requests** tab, confirm **Request status** is **Under review**.

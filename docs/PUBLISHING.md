@@ -1,6 +1,6 @@
-# Publishing Claudetap
+# Publishing Pine
 
-Claudetap is a Rust executable. GitHub Releases distributes that executable
+Pine is a Rust executable. GitHub Releases distributes that executable
 directly; npm distributes the same executable through platform-specific packages
 and a small JavaScript launcher. No package is published by building this repo.
 
@@ -18,7 +18,7 @@ Two workflows publish releases, and both produce the same asset shape:
 
 Each publishes, per target:
 
-- `claudetap-<target>.tar.gz` and its `.sha256` checksum
+- `pine-<target>.tar.gz` and its `.sha256` checksum
 - targets: `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu`,
   `x86_64-apple-darwin`, `aarch64-apple-darwin` (edge only)
 
@@ -40,9 +40,9 @@ Nothing else needs to happen for the edge channel — it publishes itself on eve
 merge to `main`. Users install or update with:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Leanmcp-Community/claudetap/main/scripts/install.sh | bash
-# or, once claudetap is already installed:
-claudetap update
+curl -fsSL https://raw.githubusercontent.com/Leanmcp-Community/pine/main/scripts/install.sh | bash
+# or, once pine is already installed:
+pine update
 ```
 
 The installer prefers a checksummed prebuilt binary and falls back to building
@@ -50,7 +50,7 @@ the selected tag (or `main` for `latest`) if the asset returns HTTP 404. A corru
 checksum, failed download, or incompatible binary fails without installing it.
 Source fallback installs Rust if missing, but requires C build tools (and, on
 Linux, CMake) already installed. It does not install system packages or change
-shell profiles. `claudetap update` does the same download-and-verify but skips
+shell profiles. `pine update` does the same download-and-verify but skips
 the source fallback and replaces the running binary directly; it declines to
 touch a Homebrew-managed install (path under `Cellar`), since Homebrew's own
 metadata would go stale.
@@ -66,18 +66,18 @@ Download the release assets (after publishing the matching GitHub release):
 
 ```bash
 mkdir -p dist
-gh release download v0.2.1 --repo Leanmcp-Community/claudetap \
-  --pattern 'claudetap-*-unknown-linux-gnu.tar.gz*' --dir dist
+gh release download v0.2.1 --repo Leanmcp-Community/pine \
+  --pattern 'pine-*-unknown-linux-gnu.tar.gz*' --dir dist
 ```
 
 Generate packages. Prefer an npm scope you control; substitute your real scope:
 
 ```bash
-python3 scripts/prepare-npm.py --artifacts dist --name @YOUR_SCOPE/claudetap
+python3 scripts/prepare-npm.py --artifacts dist --name @YOUR_SCOPE/pine
 ```
 
-Without `--name`, the names default to `claudetap`, `claudetap-linux-x64`, and
-`claudetap-linux-arm64`. With a scope, all three names use that scope. The script
+Without `--name`, the names default to `pine`, `pine-linux-x64`, and
+`pine-linux-arm64`. With a scope, all three names use that scope. The script
 verifies checksums, release versions, and ELF architectures and writes `dist/npm/`. It refuses to
 overwrite an existing output directory; use `--output` for a fresh build.
 
@@ -112,21 +112,21 @@ already-published name/version. See [npm publish](https://docs.npmjs.com/cli/v11
 Only after publication, advertise commands using the actual package name:
 
 ```bash
-npm install -g @YOUR_SCOPE/claudetap
+npm install -g @YOUR_SCOPE/pine
 # Or run without a global install:
-npx @YOUR_SCOPE/claudetap --help
+npx @YOUR_SCOPE/pine --help
 ```
 
 ## apt, Snap, and Windows executables
 
-`apt install claudetap` requires publishing Debian packages in an apt repository
+`apt install pine` requires publishing Debian packages in an apt repository
 and configuring that repository on users' machines. Snap requires a snap package
 and a Snap Store release. Those publishing channels are not configured here.
 The standalone Linux installer is the current distribution workflow provided by
 this repository for users without Rust or Node.js, once binary releases exist.
 
-`npm pack` produces a `.tgz` package archive, not an `.exe`. For Claudetap,
-compile the Rust application for Windows to produce `claudetap.exe`, test its
+`npm pack` produces a `.tgz` package archive, not an `.exe`. For Pine,
+compile the Rust application for Windows to produce `pine.exe`, test its
 Windows behavior, then distribute it directly or include it in a Windows npm
 package. A Windows CI/release job and launcher support would be needed first.
 
@@ -134,4 +134,4 @@ Claude Code's native Windows installation similarly provides `claude.exe`.
 Its npm distribution installs the same native executable through platform
 packages, according to the [Claude Code installation documentation](https://code.claude.com/docs/en/installation#install-with-npm).
 JavaScript applications can also bundle a runtime into an executable; this is
-unnecessary for Claudetap because Rust already compiles to native machine code.
+unnecessary for Pine because Rust already compiles to native machine code.

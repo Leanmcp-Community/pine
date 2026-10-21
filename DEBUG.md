@@ -1,4 +1,4 @@
-# Debugging `claudetap windsurf`
+# Debugging `pine windsurf`
 
 When something doesn't work, this is the playbook. Most issues fall into one of
 three buckets: **Windsurf exits immediately**, **TLS errors / "certificate
@@ -6,9 +6,9 @@ authority invalid"**, or **traffic isn't being captured**.
 
 ---
 
-## Symptom 1 — Windsurf exits immediately, claudetap returns to your shell prompt
+## Symptom 1 — Windsurf exits immediately, pine returns to your shell prompt
 
-> "When I open Windsurf, claudetap immediately ends on the terminal."
+> "When I open Windsurf, pine immediately ends on the terminal."
 
 ### Why this happens
 
@@ -23,9 +23,9 @@ the new process:
 
 Our supervisor sees the child exit and shuts down. The Windsurf window you
 see open is the *original* one, which never received our `--proxy-server`
-switch or `NODE_EXTRA_CA_CERTS` env, so it bypasses claudetap entirely.
+switch or `NODE_EXTRA_CA_CERTS` env, so it bypasses pine entirely.
 
-`is_windsurf_running()` in claudetap catches the obvious case via
+`is_windsurf_running()` in pine catches the obvious case via
 `pgrep -x Windsurf`, but background helpers and renamed processes can slip
 past it.
 
@@ -41,7 +41,7 @@ sleep 1
 pgrep -fl -i windsurf      # should print nothing now
 
 # Re-launch
-claudetap windsurf
+pine windsurf
 ```
 
 If `pgrep` still finds Windsurf processes after `pkill -9`, check Activity
@@ -56,18 +56,18 @@ running.
 
 ```bash
 mkdir -p /tmp/wsf-tap
-claudetap windsurf --user-data-dir /tmp/wsf-tap
+pine windsurf --user-data-dir /tmp/wsf-tap
 ```
 
 Sign in once and that profile dir remembers next time you reuse it. You can
 keep your daily-driver Windsurf running normally in parallel.
 
-### How claudetap helps you spot this
+### How pine helps you spot this
 
-If the child exits in under 3 seconds with code 0, claudetap prints:
+If the child exits in under 3 seconds with code 0, pine prints:
 
 ```
-claudetap: ⚠  windsurf exited almost immediately. Most likely cause:
+pine: ⚠  windsurf exited almost immediately. Most likely cause:
               another Windsurf process is alive and the new launch was
               forwarded to it via Electron's single-instance lock ...
 ```
@@ -81,20 +81,20 @@ If you see that hint, you're in this bucket. Apply Fix A or B.
 ### Why
 
 Chromium uses the **OS trust store**, not `SSL_CERT_FILE` / `NODE_EXTRA_CA_CERTS`.
-For Windsurf to accept the leaf certs claudetap mints on the fly, the
-claudetap root CA must be installed in your macOS login keychain.
+For Windsurf to accept the leaf certs pine mints on the fly, the
+pine root CA must be installed in your macOS login keychain.
 
 ### Fix
 
 ```bash
-claudetap ca trust         # one-time; prompts for your login password
+pine ca trust         # one-time; prompts for your login password
 
 # Verify
-security find-certificate -c "claudetap local root" >/dev/null && echo OK
+security find-certificate -c "pine local root" >/dev/null && echo OK
 
-# Or just ask claudetap
-claudetap ca path          # prints CA path
-claudetap windsurf         # banner shows "root CA is trusted ✓" or a warning
+# Or just ask pine
+pine ca path          # prints CA path
+pine windsurf         # banner shows "root CA is trusted ✓" or a warning
 ```
 
 If the trust banner says ✓ but you still get cert errors, your CA file may be
@@ -102,14 +102,14 @@ out of sync with what's in the keychain (this happens after `ca reset` if you
 forgot to re-trust). Clean slate:
 
 ```bash
-claudetap ca reset         # untrust + delete on-disk CA files
-claudetap ca trust         # mint a fresh one and trust it
-claudetap windsurf
+pine ca reset         # untrust + delete on-disk CA files
+pine ca trust         # mint a fresh one and trust it
+pine windsurf
 ```
 
 ---
 
-## Symptom 3 — claudetap is running but `traffic.jsonl` is empty (or only has one or two entries)
+## Symptom 3 — pine is running but `traffic.jsonl` is empty (or only has one or two entries)
 
 ### Diagnose first — is Windsurf even using the proxy?
 
@@ -125,12 +125,12 @@ the singleton-lock issue from §1 (you're talking to the wrong Windsurf).
 
 If connections exist but `traffic.jsonl` is sparse → host filter is too narrow.
 
-### Verbose claudetap logs
+### Verbose pine logs
 
 See every CONNECT, every TLS handshake, every body decision:
 
 ```bash
-CLAUDETAP_LOG=claudetap=debug claudetap windsurf --user-data-dir /tmp/wsf-tap
+PINE_LOG=pine=debug pine windsurf --user-data-dir /tmp/wsf-tap
 ```
 
 You'll see lines like:
@@ -149,7 +149,7 @@ total capture).
 Pass Chromium switches after `--`:
 
 ```bash
-claudetap windsurf --user-data-dir /tmp/wsf-tap -- \
+pine windsurf --user-data-dir /tmp/wsf-tap -- \
   --enable-logging=stderr --v=1 \
   --log-net-log=/tmp/wsf-net.json
 ```
@@ -171,14 +171,14 @@ When you don't know which hosts Windsurf actually contacts, MITM all of them
 once, harvest the list, then narrow back down.
 
 ```bash
-claudetap windsurf --user-data-dir /tmp/wsf-tap --hosts '*'
+pine windsurf --user-data-dir /tmp/wsf-tap --hosts '*'
 ```
 
 `*` (quoted, so the shell doesn't glob-expand it) matches every host. After
 the session:
 
 ```bash
-SESSION_DIR=$(awk 'NR==2' ~/.claudetap/last-session)
+SESSION_DIR=$(awk 'NR==2' ~/.pine/last-session)
 
 # All unique hosts seen
 jq -r '.url' "$SESSION_DIR/traffic.jsonl" \
@@ -218,27 +218,27 @@ Some services (often gRPC clients, sometimes auto-update endpoints) **pin
 certificates** in code. Even with our CA trusted, the pinned client refuses
 our forged leaf cert. Symptoms: that one feature breaks while everything
 else works; you'll see TLS handshake errors in
-`CLAUDETAP_LOG=claudetap=debug` output.
+`PINE_LOG=pine=debug` output.
 
 Workaround: don't tap that host. Remove it from `--hosts` (or from
-`WINDSURF_HOSTS`); claudetap will blind-tunnel it untouched and the feature
+`WINDSURF_HOSTS`); pine will blind-tunnel it untouched and the feature
 will work, you just won't get bodies.
 
 ### Wrong binary path
 
 Some installs put the actual Electron binary at
 `/Applications/Windsurf.app/Contents/MacOS/Windsurf` instead of
-`.../Electron`. claudetap searches both, but if you have a custom location:
+`.../Electron`. pine searches both, but if you have a custom location:
 
 ```bash
-claudetap windsurf --windsurf-bin /path/to/your/windsurf-binary
+pine windsurf --windsurf-bin /path/to/your/windsurf-binary
 ```
 
 ### Network interface changed mid-session (VPN connect/disconnect)
 
 The proxy listens on `127.0.0.1`, so loopback is unaffected. But Windsurf's
 connection pool may hold dead sockets after a VPN flap. Quit Windsurf,
-restart claudetap.
+restart pine.
 
 ---
 
@@ -253,27 +253,27 @@ sleep 1
 pgrep -fl -i windsurf       # must be empty
 
 # 2. Reset the CA
-claudetap ca reset
-claudetap ca trust
+pine ca reset
+pine ca trust
 
 # 3. (optional) Nuke old session logs
-rm -rf ~/.claudetap/sessions/
+rm -rf ~/.pine/sessions/
 
 # 4. Fresh isolated profile
 rm -rf /tmp/wsf-tap
 mkdir -p /tmp/wsf-tap
 
 # 5. Launch with full diagnostics
-CLAUDETAP_LOG=claudetap=debug claudetap windsurf --user-data-dir /tmp/wsf-tap -- \
+PINE_LOG=pine=debug pine windsurf --user-data-dir /tmp/wsf-tap -- \
   --enable-logging=stderr --v=1 --log-net-log=/tmp/wsf-net.json
 ```
 
 If *that* doesn't work, capture and share:
 
-- The full claudetap stderr (everything from launch to exit).
+- The full pine stderr (everything from launch to exit).
 - Output of `pgrep -fl -i windsurf` taken **right before** the launch.
 - The first few entries of `traffic.jsonl`:
-  `head -5 ~/.claudetap/sessions/$(awk 'NR==1' ~/.claudetap/last-session)/traffic.jsonl`
+  `head -5 ~/.pine/sessions/$(awk 'NR==1' ~/.pine/last-session)/traffic.jsonl`
 - The first ~50 net-log events:
   `jq '.events[:50]' /tmp/wsf-net.json`
 
@@ -283,12 +283,12 @@ If *that* doesn't work, capture and share:
 
 | Goal | Command |
 |---|---|
-| Verbose claudetap logs | `CLAUDETAP_LOG=claudetap=debug claudetap windsurf` |
-| Verbose Chromium logs | `claudetap windsurf -- --enable-logging=stderr --v=1` |
-| Chromium net-log file | `claudetap windsurf -- --log-net-log=/tmp/wsf-net.json` |
-| Isolated profile | `claudetap windsurf --user-data-dir /tmp/wsf-tap` |
-| Capture every host once | `claudetap windsurf --hosts '*'` |
-| Skip CA trust check | `claudetap windsurf --skip-trust-check` |
+| Verbose pine logs | `PINE_LOG=pine=debug pine windsurf` |
+| Verbose Chromium logs | `pine windsurf -- --enable-logging=stderr --v=1` |
+| Chromium net-log file | `pine windsurf -- --log-net-log=/tmp/wsf-net.json` |
+| Isolated profile | `pine windsurf --user-data-dir /tmp/wsf-tap` |
+| Capture every host once | `pine windsurf --hosts '*'` |
+| Skip CA trust check | `pine windsurf --skip-trust-check` |
 | Force-kill all Windsurf | `pkill -9 -i windsurf` |
-| Reset CA from scratch | `claudetap ca reset && claudetap ca trust` |
-| Find latest session dir | `awk 'NR==2' ~/.claudetap/last-session` |
+| Reset CA from scratch | `pine ca reset && pine ca trust` |
+| Find latest session dir | `awk 'NR==2' ~/.pine/last-session` |

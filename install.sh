@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# claudetap installer
-# Builds and installs the `claudetap` binary into ~/.cargo/bin via `cargo install`.
+# pine installer
+# Builds and installs the `pine` binary into ~/.cargo/bin via `cargo install`.
 
 set -euo pipefail
 
@@ -14,7 +14,7 @@ fi
 # A newer SDK can be installed alongside a linker that cannot read its stubs.
 # Probe linking before Cargo starts so every build script uses a working SDK.
 if [[ "$(uname -s)" == Darwin ]]; then
-    PROBE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/claudetap-sdk.XXXXXX")"
+    PROBE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/pine-sdk.XXXXXX")"
     trap 'rm -rf "$PROBE_DIR"' EXIT
     sdk_links() {
         printf 'int main(void) { return 0; }\n' |
@@ -47,14 +47,21 @@ if [[ "$(uname -s)" == Darwin ]]; then
     export SDKROOT="$SELECTED_SDK"
 fi
 
-echo ">>> Installing claudetap from ${SCRIPT_DIR}"
+echo ">>> Installing pine from ${SCRIPT_DIR}"
 cargo install --path "${SCRIPT_DIR}" --locked --color never "$@"
 
-BIN_PATH="${CARGO_HOME:-$HOME/.cargo}/bin/claudetap"
+BIN_PATH="${CARGO_HOME:-$HOME/.cargo}/bin/pine"
 if [[ -x "${BIN_PATH}" ]]; then
     # Send install event to PostHog
     "${BIN_PATH}" install-telemetry || true
     echo ">>> Installed: ${BIN_PATH}"
+    # Short alias: pn -> pine (skipped if a different pn already exists)
+    PN_PATH="$(dirname "${BIN_PATH}")/pn"
+    if [[ -e "${PN_PATH}" && ! -L "${PN_PATH}" ]]; then
+        echo ">>> Skipped the pn alias: ${PN_PATH} already exists."
+    else
+        ln -sf pine "${PN_PATH}" && echo ">>> Alias: ${PN_PATH} -> pine"
+    fi
     case ":${PATH}:" in
         *":${CARGO_HOME:-$HOME/.cargo}/bin:"*) ;;
         *)

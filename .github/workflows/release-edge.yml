@@ -2,7 +2,7 @@ name: Release edge build
 
 # Continuous delivery: every push to main gets its own GitHub release,
 # tagged by an incrementing build number plus the commit it was built from
-# (not a hand-bumped semver). `scripts/install.sh` and `claudetap update`
+# (not a hand-bumped semver). `scripts/install.sh` and `pine update`
 # both resolve "latest" to whichever release GitHub marks most recent, so
 # this is what keeps existing installs up to date without a manual version
 # bump or tag push. Versioned `vX.Y.Z` tags (release-linux.yml) still work
@@ -30,31 +30,38 @@ jobs:
             target: x86_64-unknown-linux-gnu
           - os: ubuntu-22.04-arm
             target: aarch64-unknown-linux-gnu
-          - os: macos-13
+          # Intel macOS: cross-compiled on the Apple Silicon runner (macos-13 is retired).
+          - os: macos-14
             target: x86_64-apple-darwin
+            cross: true
           - os: macos-14
             target: aarch64-apple-darwin
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - name: Install stable Rust
-        run: rustup update stable --no-self-update
+        run: |
+          rustup update stable --no-self-update
+          rustup target add --toolchain stable ${{ matrix.target }}
       - name: Run tests
+        if: ${{ !matrix.cross }}
         run: cargo +stable test --locked
       - name: Build release
-        run: cargo +stable build --release --locked
+        run: cargo +stable build --release --locked --target ${{ matrix.target }}
       - name: Package and checksum
         env:
           TARGET: ${{ matrix.target }}
         run: |
-          target/release/claudetap --version
-          target/release/claudetap --help
+          OUT="target/$TARGET/release"
+          # A cross-compiled binary can't run on the build machine; only smoke-test native builds.
+          if [ "${{ matrix.cross }}" != "true" ]; then "$OUT/pine" --version; "$OUT/pine" --help >/dev/null; fi
           mkdir dist
-          VERSION=$(cargo +stable metadata --no-deps --format-version 1 --locked | python3 -c 'import json,sys; print(json.load(sys.stdin)["packages"][0]["version"])')
-          python3 -c 'import json,os; print(json.dumps({"version": os.environ["VERSION"], "target": os.environ["TARGET"]}))' > target/release/release.json
-          tar -czf "dist/claudetap-$TARGET.tar.gz" -C target/release claudetap release.json
+          # export: the python3 one-liner below reads it from the environment (was the KeyError).
+          export VERSION=$(cargo +stable metadata --no-deps --format-version 1 --locked | python3 -c 'import json,sys; print(json.load(sys.stdin)["packages"][0]["version"])')
+          python3 -c 'import json,os; print(json.dumps({"version": os.environ["VERSION"], "target": os.environ["TARGET"]}))' > "$OUT/release.json"
+          tar -czf "dist/pine-$TARGET.tar.gz" -C "$OUT" pine release.json
           cd dist
-          shasum -a 256 "claudetap-$TARGET.tar.gz" > "claudetap-$TARGET.tar.gz.sha256"
+          shasum -a 256 "pine-$TARGET.tar.gz" > "pine-$TARGET.tar.gz.sha256"
       - uses: actions/upload-artifact@v4
         with:
           name: edge-${{ matrix.target }}

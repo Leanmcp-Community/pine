@@ -12,7 +12,7 @@ import httpx
 
 class CliTest(unittest.TestCase):
     def test_upload_resume_and_filter(self):
-        binary=Path(__file__).resolve().parents[1]/'target/debug/claudetap'
+        binary=Path(__file__).resolve().parents[1]/'target/debug/pine'
         if not binary.exists(): self.skipTest('Run cargo build first')
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp)
@@ -20,7 +20,7 @@ class CliTest(unittest.TestCase):
             (root/'keys.json').write_text(json.dumps({hashlib.sha256(key.encode()).hexdigest():'test'}))
             with socket.socket() as s:
                 s.bind(('127.0.0.1',0)); port=s.getsockname()[1]
-            env={**os.environ,'CLAUDETAP_HOME':str(root/'client'),'CLAUDETAP_UPLOAD_KEY':key,'CLAUDETAP_CONFIG':str(Path(__file__).resolve().parents[1]/'deploy/config/config.yaml'),'CLAUDETAP_DATA':str(root/'data'),'CLAUDETAP_KEYS_FILE':str(root/'keys.json')}
+            env={**os.environ,'PINE_HOME':str(root/'client'),'PINE_UPLOAD_KEY':key,'PINE_CONFIG':str(Path(__file__).resolve().parents[1]/'deploy/config/config.yaml'),'PINE_DATA':str(root/'data'),'PINE_KEYS_FILE':str(root/'keys.json')}
             import sys
             proc=subprocess.Popen([sys.executable,'-m','uvicorn','app:app','--host','127.0.0.1','--port',str(port)],env=env,cwd=Path(__file__).resolve().parent,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
             endpoint=f'http://127.0.0.1:{port}'

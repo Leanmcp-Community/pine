@@ -2,7 +2,7 @@
 
 ## System-Retrieved Memory: Python Script Execution
 
-### User Preference for claudetap Project (and Generally)
+### User Preference for pine Project (and Generally)
 
 **NEVER run Python code via:**
 - `python -c "..."`

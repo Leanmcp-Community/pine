@@ -1,6 +1,6 @@
 //! CA bootstrap and on-the-fly leaf-certificate minting.
 //!
-//! On first run we generate a per-user root CA at `~/.claudetap/ca/root.{crt,key}`
+//! On first run we generate a per-user root CA at `~/.pine/ca/root.{crt,key}`
 //! and reuse it forever. Leaf certs for each upstream host are minted on demand
 //! and cached in process memory keyed by SNI hostname.
 
@@ -29,7 +29,7 @@ pub struct Ca {
 }
 
 impl Ca {
-    /// Load the CA from `~/.claudetap/ca/`, generating it on first run.
+    /// Load the CA from `~/.pine/ca/`, generating it on first run.
     pub fn load_or_generate() -> Result<Self> {
         let cert_path = paths::ca_cert_path()?;
         let key_path = paths::ca_key_path()?;
@@ -67,8 +67,8 @@ impl Ca {
 fn generate_root() -> Result<Ca> {
     let mut params = CertificateParams::default();
     let mut dn = DistinguishedName::new();
-    dn.push(DnType::CommonName, "claudetap local root");
-    dn.push(DnType::OrganizationName, "claudetap");
+    dn.push(DnType::CommonName, "pine local root");
+    dn.push(DnType::OrganizationName, "pine");
     params.distinguished_name = dn;
     params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
     params.key_usages = vec![
@@ -132,7 +132,7 @@ fn check_key_perms(path: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Install the claudetap root CA into the OS trust store so Chromium-based
+/// Install the pine root CA into the OS trust store so Chromium-based
 /// apps (Windsurf, Cursor, VS Code) accept our forged leaf certs. macOS uses
 /// the user login keychain (no sudo). Linux/Windows print guidance only.
 pub fn os_trust_install() -> Result<()> {
@@ -168,8 +168,8 @@ pub fn os_trust_install() -> Result<()> {
             ));
         }
         eprintln!(
-            "claudetap: installed root CA into login keychain.\n\
-             Untrust later with: claudetap ca untrust"
+            "pine: installed root CA into login keychain.\n\
+             Untrust later with: pine ca untrust"
         );
         return Ok(());
     }
@@ -179,10 +179,10 @@ pub fn os_trust_install() -> Result<()> {
         eprintln!(
             "Linux trust install is not automated yet. Two stores matter for Chromium apps:\n\n\
              1. NSS (per-user, no sudo):\n\
-                certutil -d sql:$HOME/.pki/nssdb -A -t \"C,,\" -n 'claudetap Root CA' \\\n\
+                certutil -d sql:$HOME/.pki/nssdb -A -t \"C,,\" -n 'pine Root CA' \\\n\
                     -i {cert}\n\n\
              2. System (Debian/Ubuntu, requires sudo):\n\
-                sudo cp {cert} /usr/local/share/ca-certificates/claudetap.crt\n\
+                sudo cp {cert} /usr/local/share/ca-certificates/pine.crt\n\
                 sudo update-ca-certificates\n",
             cert = cert_path.display()
         );
@@ -208,9 +208,9 @@ pub fn os_trust_remove() -> Result<()> {
     #[cfg(target_os = "macos")]
     {
         let cert_path = paths::ca_cert_path()?;
-        // -c matches by common name; our CA's CN is "claudetap local root".
+        // -c matches by common name; our CA's CN is "pine local root".
         let status = std::process::Command::new("/usr/bin/security")
-            .args(["delete-certificate", "-c", "claudetap local root"])
+            .args(["delete-certificate", "-c", "pine local root"])
             .status()
             .context("running /usr/bin/security delete-certificate")?;
         if !status.success() {
@@ -220,20 +220,20 @@ pub fn os_trust_remove() -> Result<()> {
                 cert_path.display()
             ));
         }
-        eprintln!("claudetap: removed root CA from login keychain.");
+        eprintln!("pine: removed root CA from login keychain.");
         return Ok(());
     }
     #[cfg(target_os = "linux")]
     {
         eprintln!(
-            "Linux: certutil -d sql:$HOME/.pki/nssdb -D -n 'claudetap Root CA'\n\
-             and/or: sudo rm /usr/local/share/ca-certificates/claudetap.crt && sudo update-ca-certificates --fresh"
+            "Linux: certutil -d sql:$HOME/.pki/nssdb -D -n 'pine Root CA'\n\
+             and/or: sudo rm /usr/local/share/ca-certificates/pine.crt && sudo update-ca-certificates --fresh"
         );
         return Ok(());
     }
     #[cfg(target_os = "windows")]
     {
-        eprintln!("Windows: certutil -user -delstore Root \"claudetap local root\"");
+        eprintln!("Windows: certutil -user -delstore Root \"pine local root\"");
         return Ok(());
     }
     #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
@@ -256,23 +256,23 @@ pub fn reset() -> Result<()> {
         if p.exists() {
             std::fs::remove_file(p)
                 .with_context(|| format!("removing {}", p.display()))?;
-            eprintln!("claudetap: removed {}", p.display());
+            eprintln!("pine: removed {}", p.display());
         }
     }
     eprintln!(
-        "claudetap: CA reset complete. Next run will mint a fresh root CA — \
-         re-run `claudetap ca trust` afterward."
+        "pine: CA reset complete. Next run will mint a fresh root CA — \
+         re-run `pine ca trust` afterward."
     );
     Ok(())
 }
 
-/// Cheap heuristic: is the claudetap root CA trusted by the OS?
+/// Cheap heuristic: is the pine root CA trusted by the OS?
 /// macOS: ask the keychain. Other platforms: return Ok(None) (unknown).
 pub fn is_os_trusted() -> Result<Option<bool>> {
     #[cfg(target_os = "macos")]
     {
         let out = std::process::Command::new("/usr/bin/security")
-            .args(["find-certificate", "-c", "claudetap local root"])
+            .args(["find-certificate", "-c", "pine local root"])
             .output()
             .context("running /usr/bin/security find-certificate")?;
         Ok(Some(out.status.success()))

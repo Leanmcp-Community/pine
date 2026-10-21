@@ -4,7 +4,7 @@
 //! removes any captured data on disk. Once a byte lands here it stays.
 //! There is no `--max-session-bytes`, no expiry, no cleanup task.
 //!
-//! Layout under `~/.claudetap/sessions/<ulid>/`:
+//! Layout under `~/.pine/sessions/<ulid>/`:
 //!
 //! ```text
 //! meta.json                       # session metadata (claude argv, pid, start ts)
@@ -69,8 +69,8 @@ pub struct SessionMeta {
     pub proxy_addr: String,
     pub redact: bool,
     pub host_filter: Vec<String>,
-    pub claudetap_version: String,
-    /// Absolute path to this session's directory under `~/.claudetap/sessions/`.
+    pub pine_version: String,
+    /// Absolute path to this session's directory under `~/.pine/sessions/`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session_dir: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

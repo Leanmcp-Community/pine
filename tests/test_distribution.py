@@ -31,15 +31,15 @@ class DistributionTests(unittest.TestCase):
 
     def archive(self, arch, binary, version=VERSION, target=None):
         target = target or f"{arch}-unknown-linux-gnu"
-        path = self.work / f"claudetap-{target}.tar.gz"
+        path = self.work / f"pine-{target}.tar.gz"
         with tarfile.open(path, "w:gz") as bundle:
             for name, data in {
-                "claudetap": binary,
+                "pine": binary,
                 "release.json": json.dumps({"version": version, "target": target}).encode(),
             }.items():
                 info = tarfile.TarInfo(name)
                 info.size = len(data)
-                info.mode = 0o755 if name == "claudetap" else 0o644
+                info.mode = 0o755 if name == "pine" else 0o644
                 bundle.addfile(info, io.BytesIO(data))
         Path(f"{path}.sha256").write_text(f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.name}\n")
         return path
@@ -73,11 +73,11 @@ if [ "$status" = true ]; then printf 200; fi
         self.setup_download()
         for arch in ("x86_64", "aarch64"):
             self.env["TEST_ARCH"] = arch
-            self.archive(arch, b'#!/bin/sh\necho "claudetap test"\n')
+            self.archive(arch, b'#!/bin/sh\necho "pine test"\n')
             prefix = self.work / f"install {arch}"
             result = self.run_command("bash", "scripts/install.sh", "--prefix", str(prefix))
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertTrue((prefix / "claudetap").is_file())
+            self.assertTrue((prefix / "pine").is_file())
         self.assertFalse(list(self.work.glob("tmp.*")), "installer temporary directory leaked")
 
     def test_installer_macos_uses_shasum_when_sha256sum_absent(self):
@@ -91,11 +91,11 @@ if [ "$status" = true ]; then printf 200; fi
         self.env["TEST_OS"] = "Darwin"
         for arch in ("x86_64", "aarch64"):
             self.env["TEST_ARCH"] = arch
-            self.archive(arch, b'#!/bin/sh\necho "claudetap test"\n', target=f"{arch}-apple-darwin")
+            self.archive(arch, b'#!/bin/sh\necho "pine test"\n', target=f"{arch}-apple-darwin")
             prefix = self.work / f"install-macos-{arch}"
             result = self.run_command("bash", "scripts/install.sh", "--prefix", str(prefix))
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertTrue((prefix / "claudetap").is_file())
+            self.assertTrue((prefix / "pine").is_file())
 
     def test_bad_checksum_preserves_existing_install(self):
         self.setup_download()
@@ -103,7 +103,7 @@ if [ "$status" = true ]; then printf 200; fi
         Path(f"{archive}.sha256").write_text(f"{'0' * 64}  {archive.name}\n")
         prefix = self.work / "installed"
         prefix.mkdir()
-        existing = prefix / "claudetap"
+        existing = prefix / "pine"
         existing.write_text("existing installation")
         result = self.run_command("bash", "scripts/install.sh", "--prefix", str(prefix))
         self.assertNotEqual(result.returncode, 0)
@@ -121,7 +121,7 @@ if [ "$status" = true ]; then printf 200; fi
         self.setup_download()
         self.env["HTTP_STATUS"] = "404"
         with tarfile.open(self.work / "v0.2.0.tar.gz", "w:gz") as bundle:
-            info = tarfile.TarInfo("claudetap/Cargo.toml")
+            info = tarfile.TarInfo("pine/Cargo.toml")
             info.size = 0
             bundle.addfile(info, io.BytesIO(b""))
         for tool in ("cc", "cmake"):
@@ -130,13 +130,13 @@ if [ "$status" = true ]; then printf 200; fi
 set -eu
 while [ "$1" != --root ]; do shift; done
 mkdir -p "$2/bin"
-printf '#!/bin/sh\\necho claudetap-source\\n' > "$2/bin/claudetap"
-chmod +x "$2/bin/claudetap"
+printf '#!/bin/sh\\necho pine-source\\n' > "$2/bin/pine"
+chmod +x "$2/bin/pine"
 ''')
         prefix = self.work / "installed"
         result = self.run_command("bash", "scripts/install.sh", "--version", "v0.2.0", "--prefix", str(prefix))
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("claudetap-source", result.stdout)
+        self.assertIn("pine-source", result.stdout)
 
     def prepare(self, wrong_version=False):
         for arch, machine in (("x86_64", 62), ("aarch64", 183)):
@@ -145,23 +145,23 @@ chmod +x "$2/bin/claudetap"
             binary[18:20] = machine.to_bytes(2, "little")
             self.archive(arch, binary, "0.0.0" if wrong_version else VERSION)
         return self.run_command("python3", "scripts/prepare-npm.py", "--artifacts", str(self.work),
-                                "--output", str(self.work / "npm"), "--name", "@test/claudetap")
+                                "--output", str(self.work / "npm"), "--name", "@test/pine")
 
     def test_npm_scoped_packages_and_launcher_exit_status(self):
         result = self.prepare()
         self.assertEqual(result.returncode, 0, result.stderr)
-        wrapper = self.work / "npm/claudetap"
+        wrapper = self.work / "npm/pine"
         manifest = json.loads((wrapper / "package.json").read_text())
-        self.assertEqual(manifest["optionalDependencies"]["@test/claudetap-linux-arm64"], VERSION)
+        self.assertEqual(manifest["optionalDependencies"]["@test/pine-linux-arm64"], VERSION)
         cpu = self.run_command("node", "-p", "process.arch").stdout.strip()
-        binary = wrapper / f"node_modules/@test/claudetap-linux-{cpu}/bin/claudetap"
+        binary = wrapper / f"node_modules/@test/pine-linux-{cpu}/bin/pine"
         binary.parent.mkdir(parents=True)
         self.executable(binary, '#!/bin/sh\nprintf "%s\\n" "$@"\nexit 7\n')
-        result = self.run_command("node", str(wrapper / "bin/claudetap.cjs"), "an argument", "--help")
+        result = self.run_command("node", str(wrapper / "bin/pine.cjs"), "an argument", "--help")
         self.assertEqual(result.returncode, 7, result.stderr)
         self.assertEqual(result.stdout, "an argument\n--help\n")
         binary.unlink()
-        result = self.run_command("node", str(wrapper / "bin/claudetap.cjs"))
+        result = self.run_command("node", str(wrapper / "bin/pine.cjs"))
         self.assertEqual(result.returncode, 1)
         self.assertIn("optional dependencies", result.stderr)
 
@@ -186,7 +186,7 @@ chmod +x "$2/bin/claudetap"
         self.assertEqual(len(lines), 6)
         self.assertTrue(all("--dry-run" in line for line in lines[:3]))
         self.assertTrue(all("--dry-run" not in line for line in lines[3:]))
-        for line, directory in zip(lines[3:], ("linux-x64", "linux-arm64", "claudetap")):
+        for line, directory in zip(lines[3:], ("linux-x64", "linux-arm64", "pine")):
             self.assertIn(f"/npm/{directory} ", line)
 
     def test_failed_preflight_never_publishes(self):

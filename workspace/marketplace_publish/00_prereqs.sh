@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Prerequisites for publishing Claudetap Server (prod-lfxlsiyd4wqnq) on AWS Marketplace.
+# Prerequisites for publishing Pine Server (prod-lfxlsiyd4wqnq) on AWS Marketplace.
 # Run this yourself. It is idempotent-ish: re-running create-role will fail harmlessly.
 set -euo pipefail
 
@@ -28,7 +28,7 @@ cat > /tmp/awsmp-trust.json <<'JSON'
 JSON
 aws iam create-role --profile "$PROFILE" \
   --role-name AWSMarketplaceAmiIngestion \
-  --description "Lets AWS Marketplace copy and scan Claudetap AMIs for listing" \
+  --description "Lets AWS Marketplace copy and scan Pine AMIs for listing" \
   --assume-role-policy-document file:///tmp/awsmp-trust.json || \
   echo "  (role already exists, continuing)"
 aws iam attach-role-policy --profile "$PROFILE" \
@@ -38,8 +38,8 @@ aws iam attach-role-policy --profile "$PROFILE" \
 echo "== 2. copy the AMI into us-east-1 (Catalog API only accepts source AMIs there) =="
 DEST_AMI=$(aws ec2 copy-image --profile "$PROFILE" --region us-east-1 \
   --source-region "$SRC_REGION" --source-image-id "$SRC_AMI" \
-  --name "claudetap-server-$(date +%s)" \
-  --description "Claudetap single-node capture server; unique keys generated at first boot; Ubuntu 24.04 x86_64" \
+  --name "pine-server-$(date +%s)" \
+  --description "Pine single-node capture server; unique keys generated at first boot; Ubuntu 24.04 x86_64" \
   --query ImageId --output text)
 echo "  us-east-1 AMI: $DEST_AMI"
 

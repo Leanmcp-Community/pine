@@ -1,8 +1,8 @@
-# Windsurf Logging in claudetap — Complete Guide
+# Windsurf Logging in pine — Complete Guide
 
 ## Overview
 
-`claudetap` is a **man-in-the-middle (MITM) proxy** that captures every HTTPS request/response that Windsurf makes. It logs **everything** by default — nothing is filtered or discarded unless you explicitly exclude hosts.
+`pine` is a **man-in-the-middle (MITM) proxy** that captures every HTTPS request/response that Windsurf makes. It logs **everything** by default — nothing is filtered or discarded unless you explicitly exclude hosts.
 
 ---
 
@@ -29,10 +29,10 @@
 
 ## Session Directory Structure
 
-When you run `claudetap windsurf`, it creates a session under `~/.claudetap/sessions/<SESSION_ID>/`:
+When you run `pine windsurf`, it creates a session under `~/.pine/sessions/<SESSION_ID>/`:
 
 ```
-~/.claudetap/sessions/01HXY.../
+~/.pine/sessions/01HXY.../
 ├── meta.json              # Session metadata (PID, start time, proxy port, host filter, etc.)
 ├── traffic.jsonl          # One JSON line per request/response pair
 ├── bodies/                # Large request/response bodies (>64KB)
@@ -127,7 +127,7 @@ def decode_body(body_inline: dict | None, body_path: str | None, content_type: s
 import json
 from pathlib import Path
 
-session_dir = Path.home() / ".claudetap" / "sessions" / "01HXY..."
+session_dir = Path.home() / ".pine" / "sessions" / "01HXY..."
 traffic_file = session_dir / "traffic.jsonl"
 
 for line in traffic_file.read_text().splitlines():
@@ -164,7 +164,7 @@ for line in traffic_file.read_text().splitlines():
 ### Default behavior (selective)
 
 ```bash
-claudetap windsurf
+pine windsurf
 ```
 
 Only logs HTTPS traffic to curated hosts:
@@ -178,7 +178,7 @@ Only logs HTTPS traffic to curated hosts:
 ### Discovery mode (everything)
 
 ```bash
-claudetap windsurf --hosts '*'
+pine windsurf --hosts '*'
 ```
 
 Logs **every single HTTPS request** Windsurf makes. Useful for finding unknown endpoints.
@@ -192,7 +192,7 @@ Non-matching hosts are **blind-tunneled** (just piped through without decryption
 ## Key Facts About Logging
 
 1. **Append-only** — Once a byte lands on disk, it stays. No rotation, truncation, or cleanup.
-2. **No size limits** — Sessions can grow arbitrarily large. Clean up manually with `rm -rf ~/.claudetap/sessions/<id>/`.
+2. **No size limits** — Sessions can grow arbitrarily large. Clean up manually with `rm -rf ~/.pine/sessions/<id>/`.
 3. **Redaction** — By default, sensitive headers (`Authorization`, `Cookie`, `X-API-Key`) are hashed instead of logged verbatim. Use `--no-redact` to log them plaintext.
 4. **Streaming** — SSE and WebSocket messages are logged separately in `stream/` with one JSON line per event.
 5. **Timestamps** — Every request has `ts_start` and `ts_end` (RFC3339 format).
@@ -207,7 +207,7 @@ Non-matching hosts are **blind-tunneled** (just piped through without decryption
 ```python
 from pathlib import Path
 
-sessions_dir = Path.home() / ".claudetap" / "sessions"
+sessions_dir = Path.home() / ".pine" / "sessions"
 for session_dir in sorted(sessions_dir.iterdir(), reverse=True):
     print(session_dir.name)
 ```
@@ -258,7 +258,7 @@ for line in traffic_file.read_text().splitlines():
 | Aspect | Details |
 |--------|---------|
 | **What's logged** | Every HTTPS request/response matching your host filter |
-| **Where** | `~/.claudetap/sessions/<SESSION_ID>/` |
+| **Where** | `~/.pine/sessions/<SESSION_ID>/` |
 | **Main file** | `traffic.jsonl` (one JSON line per request/response) |
 | **Large bodies** | Spilled to `bodies/<id>.{req,res}.bin` (>64 KB) |
 | **Streaming** | SSE/WebSocket logged separately in `stream/` |

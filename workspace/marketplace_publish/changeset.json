@@ -6,9 +6,9 @@
       "Identifier": "prod-lfxlsiyd4wqnq"
     },
     "DetailsDocument": {
-      "ProductTitle": "Claudetap Server",
+      "ProductTitle": "Pine Server",
       "ShortDescription": "Self-hosted capture server for Claude Code and coding-agent CLI sessions, with authenticated uploads and a browser UI.",
-      "LongDescription": "Claudetap Server is a single-node capture server for Claude Code and other coding-agent CLI traffic. Clients running the Claudetap proxy upload captured sessions over HTTPS with an organization upload key; the server stores them in a local SQLite database and serves a browser UI for reading them back.\n\nThe image runs the server as an unprivileged systemd service bound to localhost, with Caddy available for optional public HTTPS. Each instance generates its own upload key on first boot, so no credential is shared between buyers and the image ships with an empty database.\n\nAdministration is documented on the instance: upload policy in /etc/claudetap/config.yaml, captured data in /var/lib/claudetap, and the generated key readable by root at /root/claudetap-upload-key.\n\nUpload keys currently grant organization-wide read and write access; browser SSO and per-user permissions are not included. Captured sessions may contain confidential information, so restrict network access and back up the data volume.",
+      "LongDescription": "Pine Server is a single-node capture server for Claude Code and other coding-agent CLI traffic. Clients running the Pine proxy upload captured sessions over HTTPS with an organization upload key; the server stores them in a local SQLite database and serves a browser UI for reading them back.\n\nThe image runs the server as an unprivileged systemd service bound to localhost, with Caddy available for optional public HTTPS. Each instance generates its own upload key on first boot, so no credential is shared between buyers and the image ships with an empty database.\n\nAdministration is documented on the instance: upload policy in /etc/pine/config.yaml, captured data in /var/lib/pine, and the generated key readable by root at /root/pine-upload-key.\n\nUpload keys currently grant organization-wide read and write access; browser SSO and per-user permissions are not included. Captured sessions may contain confidential information, so restrict network access and back up the data volume.",
       "Highlights": [
         "Single-node server: systemd service, SQLite storage, no external dependencies.",
         "Unique upload key generated on first boot; the image ships with no preset credential and no data.",
@@ -25,9 +25,9 @@
         "Log Analysis",
         "Monitoring"
       ],
-      "LogoUrl": "https://claudetap-marketplace-assets-187692046617.s3.amazonaws.com/logo.png",
+      "LogoUrl": "https://pine-marketplace-assets-187692046617.s3.amazonaws.com/logo.png",
       "AdditionalResources": [],
-      "SupportDescription": "Email contact@leanmcp.com for support. We answer during business hours on weekdays. Include your instance ID, AWS Region, and the output of 'sudo journalctl -u claudetap -n 200' when reporting a problem."
+      "SupportDescription": "Email contact@leanmcp.com for support. We answer during business hours on weekdays. Include your instance ID, AWS Region, and the output of 'sudo journalctl -u pine -n 200' when reporting a problem."
     }
   },
   {
@@ -69,7 +69,7 @@
     "DetailsDocument": {
       "Version": {
         "VersionTitle": "1.0.0",
-        "ReleaseNotes": "First AWS Marketplace release of the Claudetap capture server."
+        "ReleaseNotes": "First AWS Marketplace release of the Pine capture server."
       },
       "DeliveryOptions": [
         {
@@ -83,7 +83,7 @@
                 "OperatingSystemVersion": "Ubuntu 24.04 LTS (Noble Numbat) x86_64",
                 "ScanningPort": 22
               },
-              "UsageInstructions": "Launch with your own EC2 key pair and allow SSH only from your admin address. SSH in as ubuntu and read the generated upload key with: sudo cat /root/claudetap-upload-key\n\nFor private access, forward the UI to your workstation:\n  ssh -i your-key.pem -L 8080:127.0.0.1:8080 ubuntu@INSTANCE_IP\nthen open http://127.0.0.1:8080 and enter the key.\n\nFor a shared server, point DNS at the instance, allow TCP 80 and 443, and run: sudo claudetap-https capture.example.com\nDo not expose port 8080 directly.\n\nService: sudo systemctl status claudetap. Logs: sudo journalctl -u claudetap. Data: /var/lib/claudetap. Policy: /etc/claudetap/config.yaml.",
+              "UsageInstructions": "Launch with your own EC2 key pair and allow SSH only from your admin address. SSH in as ubuntu and read the generated upload key with: sudo cat /root/pine-upload-key\n\nFor private access, forward the UI to your workstation:\n  ssh -i your-key.pem -L 8080:127.0.0.1:8080 ubuntu@INSTANCE_IP\nthen open http://127.0.0.1:8080 and enter the key.\n\nFor a shared server, point DNS at the instance, allow TCP 80 and 443, and run: sudo pine-https capture.example.com\nDo not expose port 8080 directly.\n\nService: sudo systemctl status pine. Logs: sudo journalctl -u pine. Data: /var/lib/pine. Policy: /etc/pine/config.yaml.",
               "RecommendedInstanceType": "t3.small",
               "SecurityGroups": [
                 {
@@ -127,7 +127,7 @@
       {
         "Key": "t3.small",
         "Name": "t3.small",
-        "Description": "Claudetap Server on t3.small",
+        "Description": "Pine Server on t3.small",
         "Types": [
           "Metered"
         ],
@@ -136,7 +136,7 @@
       {
         "Key": "t3.medium",
         "Name": "t3.medium",
-        "Description": "Claudetap Server on t3.medium",
+        "Description": "Pine Server on t3.medium",
         "Types": [
           "Metered"
         ],
@@ -145,7 +145,7 @@
       {
         "Key": "t3.large",
         "Name": "t3.large",
-        "Description": "Claudetap Server on t3.large",
+        "Description": "Pine Server on t3.large",
         "Types": [
           "Metered"
         ],
@@ -154,7 +154,7 @@
       {
         "Key": "m5.large",
         "Name": "m5.large",
-        "Description": "Claudetap Server on m5.large",
+        "Description": "Pine Server on m5.large",
         "Types": [
           "Metered"
         ],
@@ -163,7 +163,7 @@
       {
         "Key": "m5.xlarge",
         "Name": "m5.xlarge",
-        "Description": "Claudetap Server on m5.xlarge",
+        "Description": "Pine Server on m5.xlarge",
         "Types": [
           "Metered"
         ],
@@ -196,7 +196,7 @@
       "Identifier": "$CreateOfferChange.Entity.Identifier"
     },
     "DetailsDocument": {
-      "Name": "Claudetap Server public offer",
+      "Name": "Pine Server public offer",
       "Description": "Hourly software pricing per instance, billed in addition to AWS infrastructure costs."
     }
   },

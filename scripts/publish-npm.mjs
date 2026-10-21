@@ -13,7 +13,7 @@ if (positional.length > 1 || positional.some(arg => arg.startsWith('-'))) {
 }
 const root = resolve(positional[0] ?? 'dist/npm');
 const plan = JSON.parse(readFileSync(resolve(root, 'publish-plan.json'), 'utf8'));
-if (JSON.stringify(plan) !== JSON.stringify(['linux-x64', 'linux-arm64', 'claudetap'])) {
+if (JSON.stringify(plan) !== JSON.stringify(['linux-x64', 'linux-arm64', 'pine'])) {
   throw new Error('Unexpected publish plan; regenerate with scripts/prepare-npm.py');
 }
 const packages = plan.map(directory => {

@@ -1,10 +1,10 @@
-"""Read & decode WebSocket streams captured by claudetap.
+"""Read & decode WebSocket streams captured by pine.
 
 Usage:
     python workspace/inspect_ws.py [SESSION_ID] [--req-id REQ_ID]
 
 If SESSION_ID is omitted, picks the most recently modified session under
-~/.claudetap/sessions/. If --req-id is given, only that exchange is dumped;
+~/.pine/sessions/. If --req-id is given, only that exchange is dumped;
 otherwise every WebSocket exchange in the session is summarised.
 
 WHAT THIS SCRIPT DEMONSTRATES
@@ -12,7 +12,7 @@ WHAT THIS SCRIPT DEMONSTRATES
 The Rust side does this for every WS frame (see src/ws.rs::proxy_ws_stream):
   * unmask the payload
   * write one JSON object per frame to
-    ~/.claudetap/sessions/<sid>/stream/<req_id>.ws.jsonl
+    ~/.pine/sessions/<sid>/stream/<req_id>.ws.jsonl
   * mark the parent traffic.jsonl record with
         response.is_websocket = true
         response.ws_path      = "stream/<req_id>.ws.jsonl"
@@ -301,7 +301,7 @@ def main() -> int:
     ap.add_argument("--req-id", default=None, help="Only dump this exchange")
     args = ap.parse_args()
 
-    root = Path.home() / ".claudetap" / "sessions"
+    root = Path.home() / ".pine" / "sessions"
     if args.session_id:
         sess_dir = root / args.session_id
     else:
@@ -315,8 +315,8 @@ def main() -> int:
     ws_entries = find_ws_entries(traffic)
     if not ws_entries:
         print("No WebSocket exchanges (response.is_websocket==true) in this session.")
-        print("Hint: claudetap only logs WS for hosts matched by --hosts. Run")
-        print("      claudetap with the upgrading host in --hosts and retry.")
+        print("Hint: pine only logs WS for hosts matched by --hosts. Run")
+        print("      pine with the upgrading host in --hosts and retry.")
         return 0
 
     if args.req_id:

@@ -11,11 +11,11 @@ from textual.widgets import DataTable, Footer, Header, Static
 
 from ..models import SessionMeta
 
-SESSIONS_DIR = Path.home() / ".claudetap" / "sessions"
+SESSIONS_DIR = Path.home() / ".pine" / "sessions"
 
 
 class SessionListScreen(Screen):
-    """Browse all claudetap sessions."""
+    """Browse all pine sessions."""
 
     BINDINGS = [
         ("q", "quit", "Quit"),
@@ -26,7 +26,7 @@ class SessionListScreen(Screen):
     def compose(self) -> ComposeResult:
         yield Header()
         yield Static(
-            " 📡 claudetap sessions",
+            " 📡 pine sessions",
             id="session-header",
         )
         yield DataTable(id="session-table", cursor_type="row", zebra_stripes=True)

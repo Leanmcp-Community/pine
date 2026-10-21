@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Render the AWS Marketplace change set for the Claudetap Server listing.
+"""Render the AWS Marketplace change set for the Pine Server listing.
 
 Reads config.json (see config.example.json), writes changeset.json next to it.
 Does not call AWS. Submit with 01_submit.sh after reviewing the output.
@@ -31,8 +31,8 @@ product = {"Type": "AmiProduct@1.0", "Identifier": cfg["product_id"]}
 offer = {"Type": "Offer@1.0", "Identifier": "$CreateOfferChange.Entity.Identifier"}
 
 long_description = (
-    "Claudetap Server is a single-node capture server for Claude Code and other "
-    "coding-agent CLI traffic. Clients running the Claudetap proxy upload captured "
+    "Pine Server is a single-node capture server for Claude Code and other "
+    "coding-agent CLI traffic. Clients running the Pine proxy upload captured "
     "sessions over HTTPS with an organization upload key; the server stores them in "
     "a local SQLite database and serves a browser UI for reading them back.\n\n"
     "The image runs the server as an unprivileged systemd service bound to localhost, "
@@ -40,8 +40,8 @@ long_description = (
     "upload key on first boot, so no credential is shared between buyers and the "
     "image ships with an empty database.\n\n"
     "Administration is documented on the instance: upload policy in "
-    "/etc/claudetap/config.yaml, captured data in /var/lib/claudetap, and the "
-    "generated key readable by root at /root/claudetap-upload-key.\n\n"
+    "/etc/pine/config.yaml, captured data in /var/lib/pine, and the "
+    "generated key readable by root at /root/pine-upload-key.\n\n"
     "Upload keys currently grant organization-wide read and write access; browser SSO "
     "and per-user permissions are not included. Captured sessions may contain "
     "confidential information, so restrict network access and back up the data volume."
@@ -52,7 +52,7 @@ changeset = [
         "ChangeType": "UpdateInformation",
         "Entity": product,
         "DetailsDocument": {
-            "ProductTitle": "Claudetap Server",
+            "ProductTitle": "Pine Server",
             "ShortDescription": (
                 "Self-hosted capture server for Claude Code and coding-agent CLI "
                 "sessions, with authenticated uploads and a browser UI."
@@ -119,15 +119,15 @@ changeset = [
                             "UsageInstructions": (
                                 "Launch with your own EC2 key pair and allow SSH only from your "
                                 "admin address. SSH in as ubuntu and read the generated upload key "
-                                "with: sudo cat /root/claudetap-upload-key\n\n"
+                                "with: sudo cat /root/pine-upload-key\n\n"
                                 "For private access, forward the UI to your workstation:\n"
                                 "  ssh -i your-key.pem -L 8080:127.0.0.1:8080 ubuntu@INSTANCE_IP\n"
                                 "then open http://127.0.0.1:8080 and enter the key.\n\n"
                                 "For a shared server, point DNS at the instance, allow TCP 80 and 443, "
-                                "and run: sudo claudetap-https capture.example.com\n"
+                                "and run: sudo pine-https capture.example.com\n"
                                 "Do not expose port 8080 directly.\n\n"
-                                "Service: sudo systemctl status claudetap. Logs: sudo journalctl -u claudetap. "
-                                "Data: /var/lib/claudetap. Policy: /etc/claudetap/config.yaml."
+                                "Service: sudo systemctl status pine. Logs: sudo journalctl -u pine. "
+                                "Data: /var/lib/pine. Policy: /etc/pine/config.yaml."
                             ),
                             "RecommendedInstanceType": cfg["recommended_instance_type"],
                             "SecurityGroups": [
@@ -148,7 +148,7 @@ changeset = [
         "ChangeType": "AddDimensions",
         "Entity": product,
         "DetailsDocument": [
-            {"Key": it, "Name": it, "Description": f"Claudetap Server on {it}",
+            {"Key": it, "Name": it, "Description": f"Pine Server on {it}",
              "Types": ["Metered"], "Unit": "Hrs"}
             for it in cfg["instance_types"]
         ],
@@ -164,7 +164,7 @@ changeset = [
         "ChangeType": "UpdateInformation",
         "Entity": offer,
         "DetailsDocument": {
-            "Name": "Claudetap Server public offer",
+            "Name": "Pine Server public offer",
             "Description": "Hourly software pricing per instance, billed in addition to AWS infrastructure costs.",
         },
     },

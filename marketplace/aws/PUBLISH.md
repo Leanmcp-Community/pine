@@ -1,4 +1,4 @@
-# Publishing Claudetap Server on AWS Marketplace
+# Publishing Pine Server on AWS Marketplace
 
 Account `187692046617`, CLI profile `marketplace`. Catalog API calls go to
 `us-east-1` regardless of where the AMI was built.

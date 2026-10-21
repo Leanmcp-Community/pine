@@ -12,9 +12,9 @@ from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import Response
 
 app = FastAPI()
-DATA = Path(os.environ.get('CLAUDETAP_DATA', '/data'))
-KEY_FILE = os.environ.get('CLAUDETAP_KEYS_FILE', '/run/secrets/keys.json')
-CONFIG_FILE = os.environ.get('CLAUDETAP_CONFIG', '/etc/claudetap/config.yaml')
+DATA = Path(os.environ.get('PINE_DATA', '/data'))
+KEY_FILE = os.environ.get('PINE_KEYS_FILE', '/run/secrets/keys.json')
+CONFIG_FILE = os.environ.get('PINE_CONFIG', '/etc/pine/config.yaml')
 
 def policy():
     try:

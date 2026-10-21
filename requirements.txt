@@ -1,4 +1,4 @@
-# claudetap TUI — Python dependencies
+# pine TUI — Python dependencies
 #
 # Install with:
 #     pip install -r requirements.txt

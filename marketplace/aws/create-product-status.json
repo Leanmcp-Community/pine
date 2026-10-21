@@ -1,7 +1,7 @@
 {
     "ChangeSetId": "3r3br9ljh9b9fn8993r13uc4",
     "ChangeSetArn": "arn:aws:aws-marketplace:us-east-1:187692046617:AWSMarketplace/ChangeSet/3r3br9ljh9b9fn8993r13uc4",
-    "ChangeSetName": "Create Claudetap Server draft",
+    "ChangeSetName": "Create Pine Server draft",
     "Intent": "APPLY",
     "StartTime": "2026-09-08T12:07:10Z",
     "EndTime": "2026-09-08T12:07:16Z",
@@ -13,9 +13,9 @@
                 "Type": "AmiProduct@1.0",
                 "Identifier": "prod-lfxlsiyd4wqnq@1"
             },
-            "Details": "{\"ProductTitle\":\"Claudetap Server\"}",
+            "Details": "{\"ProductTitle\":\"Pine Server\"}",
             "DetailsDocument": {
-                "ProductTitle": "Claudetap Server"
+                "ProductTitle": "Pine Server"
             },
             "ErrorDetailList": []
         }
