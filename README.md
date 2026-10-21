@@ -61,7 +61,7 @@ Only sessions started after `pn login` are shared. To share older ones on purpos
 | `pn sync` | Upload now and keep watching. Also `--once`, `--all`, `status`, `pause`, `resume`. |
 | `pn checkpoint "name" [-m note] [--session id]` | Name the current conversation at this moment. |
 | `pn checkpoints` | Your team's checkpoints. |
-| `pn pull <checkpoint-name \| session-id>` | Download a teammate's checkpoint or session into `~/.pine/sessions/`. |
+| `pn pull <checkpoint-name \| session-id> [--into claude\|codex]` | Download a teammate's checkpoint or session and set it up to continue in this folder: a resumable Claude Code session (`pn -- --resume <id>`), or for Codex a `conversation.md` to start from. Run it inside your clone of the repo. |
 | `pn open [id]` | Open a session (default: the latest) on app.usepine.dev. |
 | `pn -i` | Interactive menu: login, sync, checkpoints, sessions. |
 | `pn ca trust` / `pn ca untrust` | Add or remove Pine's root CA in the macOS login keychain. |

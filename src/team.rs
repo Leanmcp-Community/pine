@@ -415,7 +415,7 @@ async fn register(c: &reqwest::Client, auth: &Auth, id: &str, dir: &Path) -> Res
     Ok(res["note"].as_str().map(String::from))
 }
 
-fn now_rfc3339() -> String {
+pub(crate) fn now_rfc3339() -> String {
     time::OffsetDateTime::now_utc()
         .format(&time::format_description::well_known::Rfc3339)
         .unwrap_or_default()
@@ -612,7 +612,7 @@ pub async fn checkpoints() -> Result<()> {
 }
 
 /// `pine pull <checkpoint-name | session-id>`
-pub async fn pull(target: String) -> Result<()> {
+pub async fn pull(target: String, into: Option<String>) -> Result<()> {
     let auth = require_auth()?;
     let api = api_base(Some(&auth));
     let c = client()?;
@@ -627,8 +627,15 @@ pub async fn pull(target: String) -> Result<()> {
 
     let dest = crate::paths::session_dir(&id)?;
     if dest.is_dir() && !dest.join(".pulled").exists() {
-        println!("{} is your own session; it's already at {}", id, dest.display());
-        return Ok(());
+        // Your own session: nothing to download, but you can still continue it
+        // in another agent (e.g. a Codex conversation in Claude Code).
+        let Some(agent) = into else {
+            println!("{} is your own session; it's already at {}", id, dest.display());
+            println!("  To continue it in another agent here:  pn pull {target} --into claude|codex");
+            return Ok(());
+        };
+        let t = crate::transcript::build(&dest).ok_or_else(|| anyhow!("no conversation in {id}"))?;
+        return continue_in(&serde_json::to_value(t)?, &agent, &label, &dest);
     }
     for (file, upto) in &files {
         // Transcript sessions: one JSON file, cut to the first `upto` messages for a checkpoint.
@@ -656,6 +663,31 @@ pub async fn pull(target: String) -> Result<()> {
         serde_json::to_vec_pretty(&json!({ "from": label, "pulled_at": now_rfc3339(), "api": api }))?,
     )?;
     println!("✓ Pulled {label} ({} files) → {}", files.len(), dest.display());
+    let Ok(raw) = std::fs::read(dest.join("transcript.json")) else {
+        return Ok(()); // an old raw-synced session: no transcript to continue from
+    };
+    let t: Value = serde_json::from_slice(&raw)?;
+    let agent = into.unwrap_or_else(|| t["agent"].as_str().unwrap_or("claude").to_string());
+    continue_in(&t, &agent, &label, &dest)
+}
+
+/// Hand a pulled transcript to an agent in the current folder and say how to resume.
+fn continue_in(t: &Value, agent: &str, label: &str, dest: &Path) -> Result<()> {
+    let cwd = std::env::current_dir()?;
+    match agent {
+        "claude" => {
+            let sid = crate::resume::into_claude(t, label, &cwd)?;
+            println!("✓ Added to Claude Code for {}", cwd.display());
+            println!("  Continue it:  pn -- --resume {sid}     (or: claude --resume {sid})");
+        }
+        "codex" => {
+            let md = dest.join("conversation.md");
+            crate::resume::markdown(t, label, &md)?;
+            println!("✓ Wrote {}", md.display());
+            println!("  Continue it:  pn codex -- \"Read {} and continue that conversation from where it left off.\"", md.display());
+        }
+        other => bail!("--into takes claude or codex, not {other}"),
+    }
     Ok(())
 }
 
@@ -802,7 +834,7 @@ async fn pick_checkpoint() -> Result<()> {
     }
     let Some(pick) = ask("\n  Pull which? (number, Enter to go back) > ") else { return Ok(()) };
     let Some(c) = pick.parse::<usize>().ok().and_then(|n| list.get(n.wrapping_sub(1))) else { return Ok(()) };
-    pull(c["name"].as_str().unwrap_or_default().to_string()).await
+    pull(c["name"].as_str().unwrap_or_default().to_string(), None).await
 }
 
 async fn pick_session() -> Result<()> {

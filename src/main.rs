@@ -21,6 +21,7 @@ mod proxy;
 mod sse;
 mod team;
 mod transcript;
+mod resume;
 mod update;
 mod ws;
 
@@ -185,6 +186,10 @@ enum Cmd {
     Pull {
         /// Checkpoint name or session id.
         target: String,
+        /// Agent to continue it in: claude or codex (default: the one it was recorded with).
+        /// Run it in your clone of the repo; that's where the agent will resume.
+        #[arg(long)]
+        into: Option<String>,
     },
     /// Print the compact transcript sync would upload for a session (debugging).
     #[command(hide = true)]
@@ -330,7 +335,7 @@ fn main() -> Result<()> {
         Some(Cmd::Sync { sub, once, all }) => runtime()?.block_on(team::sync_cmd(sub, once, all)),
         Some(Cmd::Checkpoint { name, note, session }) => runtime()?.block_on(team::checkpoint(name, note, session)),
         Some(Cmd::Checkpoints) => runtime()?.block_on(team::checkpoints()),
-        Some(Cmd::Pull { target }) => runtime()?.block_on(team::pull(target)),
+        Some(Cmd::Pull { target, into }) => runtime()?.block_on(team::pull(target, into)),
         Some(Cmd::Open { id }) => team::open(id),
         Some(Cmd::Transcript { id }) => {
             let t = transcript::build(&paths::session_dir(&id)?).ok_or_else(|| anyhow::anyhow!("no conversation in {id}"))?;
