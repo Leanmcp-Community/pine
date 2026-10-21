@@ -12,7 +12,6 @@
 //! - Offline or logged out: nothing changes locally; sync catches up later.
 
 use std::collections::BTreeMap;
-use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -20,12 +19,11 @@ use anyhow::{anyhow, bail, Context, Result};
 use clap::Subcommand;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use sha2::{Digest, Sha256};
 
 const DEFAULT_API: &str = "https://app.usepine.dev";
 /// Public client id of the "Pine MD" GitHub App (device flow needs no secret).
 const GITHUB_CLIENT_ID: &str = "Iv23liqQWqjQv0ivKzAi";
-const CHUNK: u64 = 3 * 1024 * 1024; // stays under Vercel's 4.5 MB body limit
+const MAX_TRANSCRIPT: usize = 3_800_000; // stays under Vercel's 4.5 MB body limit
 const LIVE_EVERY: Duration = Duration::from_secs(2);
 
 #[derive(Debug, Subcommand)]
@@ -227,11 +225,11 @@ pub async fn whoami() -> Result<()> {
         return Ok(());
     };
     let api = api_base(Some(&auth));
-    let pending = pending_bytes().unwrap_or(0);
+    let pending = pending_sessions().unwrap_or(0);
     let sync = if sync_paused() {
         "paused (`pn sync resume`)".to_string()
     } else if pending > 0 {
-        format!("on, {} waiting to upload", human(pending))
+        format!("on, {} waiting to upload", sessions_label(pending))
     } else {
         "on, up to date".to_string()
     };
@@ -262,8 +260,11 @@ struct SyncState {
 #[derive(Debug, Default, Serialize, Deserialize)]
 struct SessionSync {
     registered: bool,
-    /// file (relative to the session dir) → bytes acknowledged by Pine
+    /// Checkpoint offsets for this session: {"transcript.json": message count}.
     files: BTreeMap<String, u64>,
+    /// Total raw size when the transcript was last uploaded (change detection).
+    #[serde(default)]
+    sig: u64,
 }
 
 fn state_path() -> Result<PathBuf> {
@@ -348,17 +349,25 @@ fn safe_name(rel: &str) -> bool {
         && rel.split('/').all(|seg| !seg.is_empty() && seg != ".." && seg.chars().all(|c| c.is_ascii_alphanumeric() || "._-".contains(c)))
 }
 
-fn pending_bytes() -> Result<u64> {
+/// Sessions whose conversation changed since it was last uploaded.
+fn pending_sessions() -> Result<usize> {
     let state = load_state();
-    let mut total = 0;
+    let mut n = 0;
     for (id, dir) in local_sessions(false)? {
-        let synced = state.sessions.get(&id);
-        for (f, len) in session_files(&dir) {
-            let done = synced.and_then(|s| s.files.get(&f)).copied().unwrap_or(0);
-            total += len.saturating_sub(done);
+        let sig: u64 = session_files(&dir).iter().map(|(_, len)| len).sum();
+        if state.sessions.get(&id).is_none_or(|s| s.sig != sig) {
+            n += 1;
         }
     }
-    Ok(total)
+    Ok(n)
+}
+
+fn sessions_label(n: usize) -> String {
+    if n == 1 {
+        "1 session".into()
+    } else {
+        format!("{n} sessions")
+    }
 }
 
 fn git(cwd: &str, args: &[&str]) -> Option<String> {
@@ -412,12 +421,14 @@ fn now_rfc3339() -> String {
         .unwrap_or_default()
 }
 
-/// Upload whatever is new in one session. Returns bytes uploaded.
+/// Upload one session's conversation if anything changed. Builds a compact
+/// transcript locally (src/transcript.rs) and replaces it on Pine; the raw
+/// capture never leaves this machine. Returns bytes uploaded.
 async fn sync_session(c: &reqwest::Client, auth: &Auth, state: &mut SyncState, id: &str, dir: &Path, verbose: bool) -> Result<u64> {
-    let files = session_files(dir);
+    // Raw files only ever grow, so their total size is a cheap change signal.
+    let sig: u64 = session_files(dir).iter().map(|(_, len)| len).sum();
     let entry = state.sessions.entry(id.to_string()).or_default();
-    let changed = files.iter().any(|(f, len)| entry.files.get(f).copied().unwrap_or(0) < *len);
-    if entry.registered && !changed {
+    if entry.registered && entry.sig == sig {
         return Ok(0);
     }
     if !entry.registered {
@@ -428,49 +439,37 @@ async fn sync_session(c: &reqwest::Client, auth: &Auth, state: &mut SyncState, i
         }
         entry.registered = true;
     }
-    let api = api_base(Some(auth));
-    let mut uploaded = 0;
-    for (file, len) in files {
-        let mut off = entry.files.get(&file).copied().unwrap_or(0);
-        if off >= len {
-            continue;
-        }
-        let mut fh = std::fs::File::open(dir.join(&file))?;
-        while off < len {
-            let n = (len - off).min(CHUNK);
-            let mut buf = vec![0u8; n as usize];
-            fh.seek(SeekFrom::Start(off))?;
-            fh.read_exact(&mut buf)?;
-            let sha = hex::encode(Sha256::digest(&buf));
-            let res = c
-                .post(format!("{api}/api/v1/sessions/{id}/chunks?file={file}&offset={off}"))
-                .bearer_auth(&auth.token)
-                .header("x-pine-sha256", sha)
-                .header("content-type", "application/octet-stream")
-                .body(buf)
-                .send()
-                .await
-                .context("can't reach Pine (offline?)")?;
-            let status = res.status().as_u16();
-            let body: Value = res.json().await.unwrap_or(Value::Null);
-            match status {
-                200 => {
-                    let next = body["next"].as_u64().unwrap_or(off + n);
-                    uploaded += next.saturating_sub(off);
-                    off = next;
-                }
-                // Pine has a different length on record (e.g. state file lost): resume there.
-                409 => off = body["expected"].as_u64().ok_or_else(|| anyhow!("offset conflict"))?.min(len),
-                401 => bail!("This device was signed out of Pine. Run `pn login`."),
-                _ => bail!("upload failed: {} (HTTP {status})", body["error"].as_str().unwrap_or("error")),
-            }
-            entry.files.insert(file.clone(), off);
-            if status == 409 && off == len {
-                break;
-            }
+    let Some(mut t) = crate::transcript::build(dir) else {
+        entry.sig = sig; // nothing conversational yet
+        return Ok(0);
+    };
+    // Stay under Vercel's 4.5 MB body limit: drop the oldest messages if a session is enormous.
+    let mut body = serde_json::to_vec(&t)?;
+    while body.len() > MAX_TRANSCRIPT && t.messages.len() > 1 {
+        let drop = (t.messages.len() / 10).max(1);
+        t.messages.drain(..drop);
+        body = serde_json::to_vec(&t)?;
+    }
+    let res = c
+        .put(format!("{}/api/v1/sessions/{id}/transcript", api_base(Some(auth))))
+        .bearer_auth(&auth.token)
+        .header("content-type", "application/json")
+        .body(body.clone())
+        .send()
+        .await
+        .context("can't reach Pine (offline?)")?;
+    match res.status().as_u16() {
+        200 => {}
+        401 => bail!("This device was signed out of Pine. Run `pn login`."),
+        s => {
+            let b: Value = res.json().await.unwrap_or(Value::Null);
+            bail!("upload failed: {} (HTTP {s})", b["error"].as_str().unwrap_or("error"))
         }
     }
-    Ok(uploaded)
+    entry.sig = sig;
+    // Checkpoint offsets for transcript sessions: "the first N messages".
+    entry.files = BTreeMap::from([("transcript.json".to_string(), t.messages.len() as u64)]);
+    Ok(body.len() as u64)
 }
 
 /// One pass over every local session.
@@ -512,7 +511,7 @@ pub async fn sync_cmd(sub: Option<SyncCmd>, once: bool, all: bool) -> Result<()>
         }
         Some(SyncCmd::Status) => {
             println!("Sync is {}.", if sync_paused() { "paused" } else { "on" });
-            println!("Waiting to upload: {}", human(pending_bytes()?));
+            println!("Waiting to upload: {}", sessions_label(pending_sessions()?));
         }
         None => {
             require_auth()?;
@@ -632,8 +631,14 @@ pub async fn pull(target: String) -> Result<()> {
         return Ok(());
     }
     for (file, upto) in &files {
+        // Transcript sessions: one JSON file, cut to the first `upto` messages for a checkpoint.
+        let url = if file == "transcript.json" {
+            format!("{api}/api/v1/sessions/{id}/transcript?upto={upto}")
+        } else {
+            format!("{api}/api/v1/sessions/{id}/file?path={file}&upto={upto}")
+        };
         let bytes = c
-            .get(format!("{api}/api/v1/sessions/{id}/file?path={file}&upto={upto}"))
+            .get(url)
             .bearer_auth(&auth.token)
             .send()
             .await?
@@ -739,7 +744,7 @@ pub async fn interactive() -> Result<()> {
         } else if sync_paused() {
             "paused".to_string()
         } else {
-            format!("on · {} waiting", human(pending_bytes().unwrap_or(0)))
+            format!("on · {} waiting", sessions_label(pending_sessions().unwrap_or(0)))
         };
         println!("\n  Pine  {who}\n  Sync  {sync}\n");
         println!("  1  Who am I");

@@ -12,7 +12,7 @@
 
 Pine runs your AI coding agent (Claude Code by default, also Codex, Antigravity and Windsurf) through a local HTTPS proxy.
 - **Recording:** every request and response is recorded locally to `~/.pine/sessions/<id>/`, always.
-- **Sharing:** when you're logged in, those sessions also stream to Pine. Teammates can then watch them live, name checkpoints, and pull them to their own machine.
+- **Sharing:** when you're logged in, each session's **conversation** streams to Pine: a compact transcript of your messages, the replies and one-line tool calls, built on your machine. The raw capture never leaves it. Teammates can then watch them live, name checkpoints, and pull them to their own machine.
 - **Access:** who can see a session follows **GitHub repo access**. Can you read the repo? Then you see its sessions.
 
 `pn` is a short alias for `pine`.

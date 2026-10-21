@@ -20,6 +20,7 @@ mod paths;
 mod proxy;
 mod sse;
 mod team;
+mod transcript;
 mod update;
 mod ws;
 
@@ -185,6 +186,12 @@ enum Cmd {
         /// Checkpoint name or session id.
         target: String,
     },
+    /// Print the compact transcript sync would upload for a session (debugging).
+    #[command(hide = true)]
+    Transcript {
+        /// Session id.
+        id: String,
+    },
     /// Open a session (default: the most recent) on app.usepine.dev.
     Open {
         /// Session id.
@@ -325,6 +332,11 @@ fn main() -> Result<()> {
         Some(Cmd::Checkpoints) => runtime()?.block_on(team::checkpoints()),
         Some(Cmd::Pull { target }) => runtime()?.block_on(team::pull(target)),
         Some(Cmd::Open { id }) => team::open(id),
+        Some(Cmd::Transcript { id }) => {
+            let t = transcript::build(&paths::session_dir(&id)?).ok_or_else(|| anyhow::anyhow!("no conversation in {id}"))?;
+            println!("{}", serde_json::to_string_pretty(&t)?);
+            Ok(())
+        }
         Some(Cmd::Where) => {
             println!("{}", paths::root()?.display());
             Ok(())
