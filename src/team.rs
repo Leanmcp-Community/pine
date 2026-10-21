@@ -265,6 +265,9 @@ struct SessionSync {
     /// Total raw size when the transcript was last uploaded (change detection).
     #[serde(default)]
     sig: u64,
+    /// Deleted on the web (the server answered 410): never upload it again.
+    #[serde(default)]
+    deleted: bool,
 }
 
 fn state_path() -> Result<PathBuf> {
@@ -355,7 +358,7 @@ fn pending_sessions() -> Result<usize> {
     let mut n = 0;
     for (id, dir) in local_sessions(false)? {
         let sig: u64 = session_files(&dir).iter().map(|(_, len)| len).sum();
-        if state.sessions.get(&id).is_none_or(|s| s.sig != sig) {
+        if state.sessions.get(&id).is_none_or(|s| !s.deleted && s.sig != sig) {
             n += 1;
         }
     }
@@ -428,14 +431,18 @@ async fn sync_session(c: &reqwest::Client, auth: &Auth, state: &mut SyncState, i
     // Raw files only ever grow, so their total size is a cheap change signal.
     let sig: u64 = session_files(dir).iter().map(|(_, len)| len).sum();
     let entry = state.sessions.entry(id.to_string()).or_default();
-    if entry.registered && entry.sig == sig {
+    if entry.deleted || (entry.registered && entry.sig == sig) {
         return Ok(0);
     }
     if !entry.registered {
-        if let Some(note) = register(c, auth, id, dir).await? {
-            if verbose {
-                eprintln!("  {id}: {note}");
+        match register(c, auth, id, dir).await {
+            Ok(Some(note)) if verbose => eprintln!("  {id}: {note}"),
+            Ok(_) => {}
+            Err(e) if e.to_string().ends_with("(HTTP 410)") => {
+                entry.deleted = true;
+                return Ok(0);
             }
+            Err(e) => return Err(e),
         }
         entry.registered = true;
     }
@@ -460,6 +467,10 @@ async fn sync_session(c: &reqwest::Client, auth: &Auth, state: &mut SyncState, i
         .context("can't reach Pine (offline?)")?;
     match res.status().as_u16() {
         200 => {}
+        410 => {
+            entry.deleted = true; // deleted on the web: stop uploading it
+            return Ok(0);
+        }
         401 => bail!("This device was signed out of Pine. Run `pn login`."),
         s => {
             let b: Value = res.json().await.unwrap_or(Value::Null);
