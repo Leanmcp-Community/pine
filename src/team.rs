@@ -687,3 +687,138 @@ mod tests {
         assert_eq!(github_repo("https://gitlab.com/acme/api"), None);
     }
 }
+
+// ── Interactive menu (`pine -i`) ─────────────────────────────────────────────
+
+/// Read one trimmed line; None on EOF (Ctrl-D).
+fn ask(prompt: &str) -> Option<String> {
+    use std::io::Write;
+    print!("{prompt}");
+    let _ = std::io::stdout().flush();
+    let mut line = String::new();
+    match std::io::stdin().read_line(&mut line) {
+        Ok(0) | Err(_) => None,
+        Ok(_) => Some(line.trim().to_string()),
+    }
+}
+
+/// Recent sessions recorded on this machine, newest first: (id, folder/repo label, size).
+fn recent_local(n: usize) -> Vec<(String, String, u64)> {
+    let mut all = local_sessions_since(0).unwrap_or_default();
+    all.reverse();
+    all.into_iter()
+        .take(n)
+        .map(|(id, dir)| {
+            let cwd = std::fs::read(dir.join("meta.json"))
+                .ok()
+                .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
+                .and_then(|m| m["cwd"].as_str().map(String::from))
+                .unwrap_or_default();
+            let label = Path::new(&cwd).file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "—".into());
+            let size = session_files(&dir).iter().map(|(_, l)| l).sum();
+            (id, label, size)
+        })
+        .collect()
+}
+
+fn started(id: &str) -> String {
+    id.parse::<ulid::Ulid>()
+        .ok()
+        .and_then(|u| time::OffsetDateTime::from_unix_timestamp((u.timestamp_ms() / 1000) as i64).ok())
+        .map(|t| format!("{}-{:02}-{:02} {:02}:{:02} UTC", t.year(), t.month() as u8, t.day(), t.hour(), t.minute()))
+        .unwrap_or_default()
+}
+
+/// `pine -i`: a small menu for login, sync, checkpoints and sessions.
+pub async fn interactive() -> Result<()> {
+    loop {
+        let auth = load_auth();
+        let who = auth.as_ref().map(|a| format!("@{} ({})", a.login, a.email)).unwrap_or_else(|| "not logged in · recording locally only".into());
+        let sync = if auth.is_none() {
+            "off".to_string()
+        } else if sync_paused() {
+            "paused".to_string()
+        } else {
+            format!("on · {} waiting", human(pending_bytes().unwrap_or(0)))
+        };
+        println!("\n  Pine  {who}\n  Sync  {sync}\n");
+        println!("  1  Who am I");
+        println!("  2  {}", if auth.is_some() { "Log out" } else { "Log in with GitHub" });
+        println!("  3  Sync now");
+        println!("  4  {} sync", if sync_paused() { "Resume" } else { "Pause" });
+        println!("  5  Team checkpoints  (pull one)");
+        println!("  6  My recent sessions  (open / checkpoint)");
+        println!("  7  Open Pine in the browser");
+        println!("  q  Quit\n");
+        let Some(choice) = ask("  > ") else { return Ok(()) };
+        let result = match choice.as_str() {
+            "1" => whoami().await,
+            "2" if auth.is_some() => logout().await,
+            "2" => login().await,
+            "3" => sync_cmd(None, true, false).await,
+            "4" => sync_cmd(Some(if sync_paused() { SyncCmd::Resume } else { SyncCmd::Pause }), false, false).await,
+            "5" => pick_checkpoint().await,
+            "6" => pick_session().await,
+            "7" => {
+                let url = format!("{}/sessions", api_base(auth.as_ref()));
+                open_browser(&url);
+                println!("  {url}");
+                Ok(())
+            }
+            "q" | "Q" | "quit" | "exit" => return Ok(()),
+            "" => Ok(()),
+            _ => {
+                println!("  Pick 1–7 or q.");
+                Ok(())
+            }
+        };
+        if let Err(e) = result {
+            println!("  ✗ {e}");
+        }
+    }
+}
+
+async fn pick_checkpoint() -> Result<()> {
+    let auth = require_auth()?;
+    let res = api_json(client()?.get(format!("{}/api/v1/checkpoints", api_base(Some(&auth)))).bearer_auth(&auth.token)).await?;
+    let list = res["checkpoints"].as_array().cloned().unwrap_or_default();
+    if list.is_empty() {
+        println!("  No checkpoints yet. Make one from \"My recent sessions\".");
+        return Ok(());
+    }
+    for (i, c) in list.iter().take(20).enumerate() {
+        println!(
+            "  {:>2}  {:<26} @{:<14} {}",
+            i + 1,
+            c["name"].as_str().unwrap_or(""),
+            c["user"]["login"].as_str().unwrap_or(""),
+            c["sessionTitle"].as_str().unwrap_or("").chars().take(40).collect::<String>()
+        );
+    }
+    let Some(pick) = ask("\n  Pull which? (number, Enter to go back) > ") else { return Ok(()) };
+    let Some(c) = pick.parse::<usize>().ok().and_then(|n| list.get(n.wrapping_sub(1))) else { return Ok(()) };
+    pull(c["name"].as_str().unwrap_or_default().to_string()).await
+}
+
+async fn pick_session() -> Result<()> {
+    let sessions = recent_local(10);
+    if sessions.is_empty() {
+        println!("  No sessions yet. Run `pn` to start one.");
+        return Ok(());
+    }
+    for (i, (id, label, size)) in sessions.iter().enumerate() {
+        println!("  {:>2}  {}  {:<20} {:>8}  {id}", i + 1, started(id), label, human(*size));
+    }
+    let Some(pick) = ask("\n  Which session? (number, Enter to go back) > ") else { return Ok(()) };
+    let Some((id, _, _)) = pick.parse::<usize>().ok().and_then(|n| sessions.get(n.wrapping_sub(1))) else { return Ok(()) };
+    let Some(action) = ask("  [o]pen in browser, [c]heckpoint it, Enter to go back > ") else { return Ok(()) };
+    match action.as_str() {
+        "o" => open(Some(id.clone())),
+        "c" => {
+            let Some(name) = ask("  Checkpoint name > ").filter(|s| !s.is_empty()) else { return Ok(()) };
+            let note = ask("  Note (optional) > ").filter(|s| !s.is_empty());
+            checkpoint(name, note, Some(id.clone())).await
+        }
+        _ => Ok(()),
+    }
+}

@@ -34,7 +34,7 @@ then run on the instance:
 sudo pine-https capture.example.com
 ```
 
-Configure Mac clients with the HTTPS endpoint and upload key using the Homebrew
+Configure Mac clients with the HTTPS endpoint and upload key using the install script
 instructions. A trusted HTTPS certificate requires working public DNS and
 certificate-authority access to the instance. Do not expose port 8080 directly.
 

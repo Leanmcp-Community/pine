@@ -83,11 +83,17 @@ if [ "$status" = true ]; then printf 200; fi
     def test_installer_macos_uses_shasum_when_sha256sum_absent(self):
         self.setup_download()
         self.assertIsNotNone(shutil.which("shasum"), "test host needs shasum")
-        trimmed_path = os.pathsep.join(
-            d for d in os.environ["PATH"].split(os.pathsep)
-            if not (Path(d) / "sha256sum").exists()
-        )
-        self.env["PATH"] = f"{self.mocks}{os.pathsep}{trimmed_path}"
+        # Hide only sha256sum. Dropping whole PATH dirs that contain it also
+        # drops bash/shasum on Linux (all in /usr/bin), so link the tools the
+        # installer needs into a private dir instead.
+        tools = self.work / "tools"
+        tools.mkdir()
+        for name in ("bash", "sh", "shasum", "perl", "tar", "gzip", "install", "mktemp", "mkdir",
+                     "cp", "rm", "ln", "dirname", "basename", "cat", "chmod", "env", "head", "tr", "sed"):
+            found = shutil.which(name)
+            if found:
+                (tools / name).symlink_to(found)
+        self.env["PATH"] = f"{self.mocks}{os.pathsep}{tools}"
         self.env["TEST_OS"] = "Darwin"
         for arch in ("x86_64", "aarch64"):
             self.env["TEST_ARCH"] = arch

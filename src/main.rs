@@ -139,6 +139,10 @@ struct Cli {
     #[arg(long, default_value_t = false, global = true)]
     no_redact: bool,
 
+    /// Open the interactive menu (login, sync, checkpoints, sessions).
+    #[arg(short = 'i', long, default_value_t = false)]
+    interactive: bool,
+
     /// Forwarded to `claude` after `--`.
     #[arg(last = true)]
     claude_args: Vec<OsString>,
@@ -306,6 +310,10 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
     init_tracing();
     install_default_crypto_provider()?;
+
+    if cli.interactive {
+        return runtime()?.block_on(team::interactive());
+    }
 
     match cli.command {
         Some(Cmd::Cloud { sub }) => tokio::runtime::Builder::new_multi_thread().enable_all().build()?.block_on(cloud::run(sub)),

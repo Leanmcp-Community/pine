@@ -14,7 +14,7 @@ blocks them.
 
 Proposed first product: a customer-hosted, single-node Pine server delivered
 as an Ubuntu-based x86_64 AMI. The Mac client is installed separately through
-Homebrew. This matches the current SQLite/persistent-disk architecture. Hosted
+the install script. This matches the current SQLite/persistent-disk architecture. Hosted
 SaaS procurement would require a separate onboarding and entitlement integration.
 Pricing and seller identity must be provided by the owner before submission.
 
@@ -53,7 +53,7 @@ pricing, regions and supported instances: owner-supplied, not yet finalized.
    8080 private. Configure firewall ingress for 80/443 and restricted admin SSH.
 4. Launch a clean AMI in a test account and verify first-run setup, HTTPS,
    authenticated upload, organization isolation, policy reload, restart,
-   backup/restore and upgrade. Include macOS Homebrew client onboarding.
+   backup/restore and upgrade. Include macOS client onboarding (install script).
 5. Review dependencies and image against current Marketplace AMI requirements,
    run vulnerability checks, remove build artifacts and credentials, and verify
    architecture, metadata service configuration and supported instance types.

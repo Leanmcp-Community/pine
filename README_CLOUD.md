@@ -221,6 +221,3 @@ On Docker Desktop, that volume lives inside Docker's Linux VM, not directly in
 your macOS repository. Inspect it with `docker volume inspect deploy_capture`.
 Do not delete the volume or run `docker compose down -v` unless you intend to
 remove the uploaded data. Local original captures remain under `~/.pine/sessions/`.
-
-For the proposed Homebrew installation and `brew services` workflow, see
-[macOS Homebrew setup](docs/HOMEBREW.md). The tap is hosted in `Leanmcp-Community/pine`.

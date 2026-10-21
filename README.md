@@ -1,157 +1,114 @@
-# Pine
+<p align="center">
+  <img src="assets/pine-logo.svg" width="52" alt="Pine logo">
+</p>
 
-Local HTTPS MITM proxy that taps Claude Code traffic into `~/.pine`.
+<h1 align="center">Pine</h1>
 
-## Installation
+<p align="center"><b>Multiplayer AI.</b> Your Claude Code sessions, live and shared with everyone who can read the same GitHub repo.</p>
 
-Pine is written in Rust. Prebuilt Linux and macOS binaries are published
-continuously from `main` (see below); you can also build from source with
-Cargo on either platform. This repository also includes npm publishing tools,
-but those do not mean an npm package has been published.
+<p align="center"><a href="https://usepine.dev">usepine.dev</a> · <a href="https://app.usepine.dev">app.usepine.dev</a></p>
 
-### From source (Linux and macOS)
+---
 
-Install a current stable Rust toolchain from [rustup](https://rustup.rs/). On
-Ubuntu/Debian, install the native build prerequisites:
+Pine runs your AI coding agent (Claude Code by default, also Codex, Antigravity and Windsurf) through a local HTTPS proxy.
+- **Recording:** every request and response is recorded locally to `~/.pine/sessions/<id>/`, always.
+- **Sharing:** when you're logged in, those sessions also stream to Pine. Teammates can then watch them live, name checkpoints, and pull them to their own machine.
+- **Access:** who can see a session follows **GitHub repo access**. Can you read the repo? Then you see its sessions.
 
-```bash
-sudo apt-get update
-sudo apt-get install -y build-essential cmake pkg-config ca-certificates
-```
+`pn` is a short alias for `pine`.
 
-Then build and install:
+## Install (macOS and Linux)
 
 ```bash
-git clone https://github.com/Leanmcp-Community/pine.git
-cd pine
-cargo install --path . --locked
-export PATH="${CARGO_HOME:-$HOME/.cargo}/bin:$PATH"
-pine --version
+curl -fsSL https://usepine.dev/install | bash
 ```
 
-For an existing checkout, just run `cargo install --path . --locked` again.
-`./install.sh` performs the same Cargo installation and also records an install
-telemetry event. `--locked` uses the dependency versions in `Cargo.lock`.
+- **Where it goes:** `pine` and `pn` are installed to `~/.local/bin`, without sudo.
+- **What it downloads:** the release binary for your OS/arch (Linux x86_64/ARM64 with glibc 2.35+, or macOS Intel/Apple Silicon). It verifies the binary's SHA-256 checksum.
+- **No binary for your platform:** it builds from source with Cargo instead.
+- **`pn` already taken:** if another `pn` command already exists on your machine, only `pine` is installed.
 
-Install Claude Code separately, then run `pine` to launch it through the
-proxy. Linux CI is configured to build and test on x86_64 and ARM64.
-
-### One-line installer (Linux and macOS)
+Other options:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Leanmcp-Community/pine/main/scripts/install.sh | bash
+bash scripts/install.sh --version edge-58-a1b2c3d4e5f6   # pin a build
+bash scripts/install.sh --source                         # build from source
+cargo install --path . --locked                          # from a checkout (or ./install.sh, which also adds pn)
 ```
 
-This installs to `~/.local/bin` without sudo. It downloads the latest release
-binary for your OS/arch (Linux x64/ARM64, glibc 2.35+; macOS x64/ARM64) and
-verifies its SHA-256 checksum; neither Rust nor Node.js is required. If no
-binary has been published for your platform, it builds from source instead,
-installing Rust if needed (native build prerequisites still apply on Linux).
+To update, run `pine update` or re-run the installer. To uninstall, delete `~/.local/bin/pine` and `~/.local/bin/pn`.
 
-Releases are cut continuously: every push to `main` publishes a new release
-tagged `edge-<build number>-<commit>` (see `.github/workflows/release-edge.yml`),
-so `--version latest` (the default) tracks the tip of `main` rather than a
-hand-bumped semver number. Tagged `vX.Y.Z` releases (`release-linux.yml`) still
-exist for anyone who wants to pin a specific stable version.
-
-To build from source explicitly, pin a release, or change the install folder:
+## Quick start
 
 ```bash
-bash scripts/install.sh --source
-bash scripts/install.sh --version v0.2.0 --prefix "$HOME/.local/bin"
-bash scripts/install.sh --version edge-58-a1b2c3d4e5f6
+pn login          # opens github.com, approve the code → sync turns on
+pn                # run Claude Code through Pine; the session streams to app.usepine.dev
+pn checkpoint "rate-limit-working" -m "tests green"
+pn pull rate-limit-working     # on a teammate's machine
 ```
 
-**Updating**: re-run the installer, or run `pine update` — it downloads
-the latest release for your platform, checks whether it's actually different
-(comparing `--version`, which embeds the git commit), and replaces the running
-binary in place if so. `pine update` refuses to touch a Homebrew-managed
-install; use `brew upgrade` for those. Remove `~/.local/bin/pine` to
-uninstall the default binary installation.
+Only sessions started after `pn login` are shared. To share older ones on purpose, run `pn sync --all`.
 
-### Homebrew (macOS)
+## Commands
+
+| Command | What it does |
+|---|---|
+| `pn` | Launch `claude` through the proxy. Args after `--` go to claude. |
+| `pn codex`, `pn agy`, `pn windsurf` | Same for OpenAI Codex, Antigravity (`--gui` for the desktop app) and Windsurf. |
+| `pn proxy` | Run only the proxy and print the env vars to wire up any client. |
+| `pn login` / `pn logout` | GitHub device-flow login to Pine / revoke this device. Recording continues locally either way. |
+| `pn whoami` | Who you are, and whether sync is live, paused or local-only (works offline). |
+| `pn sync` | Upload now and keep watching. Also `--once`, `--all`, `status`, `pause`, `resume`. |
+| `pn checkpoint "name" [-m note] [--session id]` | Name the current conversation at this moment. |
+| `pn checkpoints` | Your team's checkpoints. |
+| `pn pull <checkpoint-name \| session-id>` | Download a teammate's checkpoint or session into `~/.pine/sessions/`. |
+| `pn open [id]` | Open a session (default: the latest) on app.usepine.dev. |
+| `pn -i` | Interactive menu: login, sync, checkpoints, sessions. |
+| `pn ca trust` / `pn ca untrust` | Add or remove Pine's root CA in the macOS login keychain. |
+| `pn update` | Replace this binary with the latest release. |
+
+## Teams and access
+
+- **Setup:** an org admin installs the **Pine MD** GitHub App on the org (all repos, or selected ones). Pine only reads repo metadata and org membership, never code.
+- **Joining:** everyone in the org signs in with GitHub. The **Team** page on app.usepine.dev shows who has joined and who has the CLI connected, plus an invite message to copy.
+- **Tagging:** each session is tagged with the repo, branch and commit of the folder it ran in, read from `git remote get-url origin`.
+- **Who can see a session:** you can see it if it's yours, or if you can currently read its repo on GitHub. Losing repo access removes access to its sessions.
+- **Private sessions:** sessions outside a GitHub repo, or in repos where Pine MD isn't installed, stay private to their owner.
+
+## What gets captured
+
+Each target has a default host allow-list. Other hosts are tunneled without being decrypted. Override the list with `--hosts a.com,*.b.com`.
+
+- **claude:** `api.anthropic.com`, `*.anthropic.com`
+- **codex:** `api.openai.com`, `*.openai.com`, `chatgpt.com`, `*.chatgpt.com`
+- **antigravity:** Google Cloud Code / AI Platform hosts, Google auth hosts, and `api.anthropic.com`
+- **windsurf:** `*.codeium.com`, `*.windsurf.com` and related hosts
+
+What gets redacted and how it's stored:
+- **Redaction:** auth headers (`authorization`, `x-api-key`, cookies) are hashed instead of stored, unless you pass `--no-redact`.
+- **Storage:** sessions are append-only and never deleted. The layout is `meta.json`, `traffic.jsonl`, `bodies/`, `stream/`.
+- **Protocol:** the proxy decrypts HTTP/1.1 only. Pure HTTP/2 (gRPC) calls are tunneled without decryption.
+
+**Trusting the CA.** Claude Code and Codex get the CA through environment variables (`NODE_EXTRA_CA_CERTS`). `agy` and Windsurf only trust the OS store, so run `pn ca trust` once for those. On Linux, `pn ca trust` prints the manual steps instead of changing the system store.
+
+## Your data
+
+- **Local first:** everything is recorded locally whether or not you're logged in.
+- **Sharing:** logged-in sessions are visible to everyone who can read the repo. They include prompts, code and tool output. Structured credentials are filtered, but free text can still contain secrets.
+- **Pausing uploads:** run `pn sync pause` to stop uploading.
+- **Account files:** `~/.pine/auth.json` (mode 600) holds this device's Pine token. You can sign a device out from the **Devices** page.
+
+## Self-hosted uploads
+
+Before Pine's hosted app, Pine had a self-hosted upload server (`pine cloud …`, FastAPI + SQLite). It still works. See [README_CLOUD.md](README_CLOUD.md).
+
+## Development
 
 ```bash
-brew tap leanmcp-community/pine https://github.com/Leanmcp-Community/pine.git
-brew install --HEAD leanmcp-community/pine/pine
+cargo test --locked
+python3 -m unittest discover -s tests   # installer / packaging tests
 ```
 
-This builds from source; Homebrew installs Rust as a build dependency.
-See [Homebrew setup](docs/HOMEBREW.md) for cloud configuration and background services.
+Every push to `main` builds Linux (x86_64, ARM64) and macOS (Intel, Apple Silicon) binaries. Each build is published as a GitHub release tagged `edge-<n>-<commit>` (`.github/workflows/release-edge.yml`). That's what the installer and `pine update` download. Tagged `vX.Y.Z` releases are built by `release-linux.yml`.
 
-### npm, apt, Snap, and Windows
-
-**No npm installation is advertised yet.** Maintainers can use the
-[publishing guide](docs/PUBLISHING.md) to publish Linux x64 and ARM64 binaries
-and an npm launcher. npm is a distribution channel: the application stays Rust,
-and the small JavaScript launcher runs the packaged executable. npm installation
-will require Node.js, while the standalone binary will not.
-
-There is no configured apt repository or Snap package. A Windows `.exe` requires
-a Windows build and platform validation; Linux binaries cannot be renamed to
-`.exe`. Windows release packaging is not configured. See the publishing guide
-for the release process and the distinction between npm packages and executables.
-
-## Usage
-
-Pine mints a local root CA, stands up an HTTPS MITM proxy, then launches a
-target with its traffic routed through that proxy and logged to
-`~/.pine/sessions/<id>/`.
-
-```bash
-# Tap the Claude Code CLI (default; env-var proxy)
-pine                       # launches `claude` under the proxy
-pine -- --help             # args after `--` are forwarded to claude
-
-# Tap Windsurf (Electron GUI; Chromium --proxy-server flags)
-pine windsurf
-
-# Tap the Antigravity CLI (`agy`, Google's agent CLI)
-pine antigravity           # or the alias: pine agy
-pine agy --agy-bin /path/to/agy
-
-# Tap the OpenAI Codex CLI
-pine codex
-pine codex -- --help
-
-# Just run the proxy and wire up your own client
-pine proxy
-```
-
-### Trusting the CA (required for Antigravity & Windsurf)
-
-`agy` is a Go binary and Windsurf is Chromium-based; both validate TLS against
-the **OS trust store**, not env-var CA bundles. Install the pine root CA
-once:
-
-```bash
-pine ca trust       # add root CA to the login keychain (macOS)
-pine ca untrust     # remove it again
-```
-
-The Claude Code launcher sets `NODE_EXTRA_CA_CERTS` for the child process.
-On Linux, `pine ca trust` prints manual certificate setup instructions; it
-does not automatically modify certificate stores.
-
-### What gets tapped
-
-Each target ships with a default host allow-list (everything else is
-blind-tunneled, not decrypted). Override with `--hosts a.com,*.b.com`.
-
-- **claude** → `api.anthropic.com`, `*.anthropic.com`
-- **codex** → `api.openai.com`, `*.openai.com`, `chatgpt.com`
-- **antigravity** → `cloudcode-pa.googleapis.com`, `aiplatform.googleapis.com`,
-  `*.googleapis.com`, Google auth hosts, and `api.anthropic.com` (Antigravity
-  serves Claude models through Google's Cloud Code backend).
-
-> **Note:** the proxy decrypts HTTP/1.1 only. Google's Cloud Code REST/SSE
-> endpoints work over HTTP/1.1, but any pure-gRPC (HTTP/2) calls are tunneled
-> without decryption. Likewise, the Electron app `agy` can launch over CDP
-> inherits the proxy env vars but Chromium ignores `HTTPS_PROXY` for its own
-> network stack — the core LLM traffic from the `agy` process itself is what
-> gets captured.
-
-## Optional cloud uploads
-
-See [cloud setup and deployment instructions](README_CLOUD.md) for running your
-own server locally or remotely, configuring uploads, and installing the background service.
+The web app (app.usepine.dev) lives in a separate repo.
