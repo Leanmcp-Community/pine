@@ -115,7 +115,9 @@ pub fn write_claude(turns: Vec<Turn>, title: &str, model: &str, branch: &str, cw
         } else {
             json!({
                 "id": format!("msg_pine_{i}"), "type": "message", "role": "assistant",
-                "model": if model.is_empty() { "unknown" } else { model },
+                // Claude Code restores the session model from this field. Anything that isn't
+                // a Claude model (gpt-*, empty) is marked "<synthetic>", which it skips.
+                "model": if model.starts_with("claude-") { model } else { "<synthetic>" },
                 "content": [{ "type": "text", "text": text }],
                 "stop_reason": "end_turn", "stop_sequence": null,
                 "usage": { "input_tokens": 0, "output_tokens": 0 },
