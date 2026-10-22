@@ -20,17 +20,20 @@ fn s<'a>(m: &'a Value, k: &str) -> &'a str {
     m[k].as_str().unwrap_or("")
 }
 
-fn clip(t: &str, n: usize) -> String {
+pub(crate) fn clip(t: &str, n: usize) -> String {
     match t.char_indices().nth(n) {
         Some((i, _)) => format!("{}…", &t[..i]),
         None => t.to_string(),
     }
 }
 
-/// Alternating (role, text) turns. Context notes are dropped; tool calls fold
-/// into the assistant turn that made them; consecutive same-role messages merge.
-fn turns(t: &Value, label: &str) -> Vec<(&'static str, String, String)> {
-    let mut out: Vec<(&'static str, String, String)> = Vec::new();
+/// One message for the agent: (role, text, timestamp).
+pub type Turn = (&'static str, String, String);
+
+/// Alternating (role, text) turns from a Pine transcript. Context notes are
+/// dropped; tool calls fold into the assistant turn that made them.
+fn turns(t: &Value, label: &str) -> Vec<Turn> {
+    let mut items: Vec<Turn> = Vec::new();
     for m in t["messages"].as_array().into_iter().flatten() {
         let (role, text) = match s(m, "kind") {
             "user" => ("user", s(m, "text").to_string()),
@@ -44,6 +47,15 @@ fn turns(t: &Value, label: &str) -> Vec<(&'static str, String, String)> {
             }
             _ => continue,
         };
+        items.push((role, text, s(m, "at").to_string()));
+    }
+    alternate(items, &format!("[Conversation pulled from Pine ({label}). Tool calls appear as one-line summaries.]"))
+}
+
+/// Merge consecutive same-role messages and put `note` at the start of the first user turn.
+pub fn alternate(items: Vec<Turn>, note: &str) -> Vec<Turn> {
+    let mut out: Vec<Turn> = Vec::new();
+    for (role, text, at) in items {
         if text.trim().is_empty() {
             continue;
         }
@@ -52,13 +64,12 @@ fn turns(t: &Value, label: &str) -> Vec<(&'static str, String, String)> {
                 last.1.push_str("\n\n");
                 last.1.push_str(&text);
             }
-            _ => out.push((role, text, s(m, "at").to_string())),
+            _ => out.push((role, text, at)),
         }
     }
-    let note = format!("[Conversation pulled from Pine ({label}). Tool calls appear as one-line summaries.]");
     match out.first_mut() {
         Some(first) if first.0 == "user" => first.1 = format!("{note}\n\n{}", first.1),
-        _ => out.insert(0, ("user", note, String::new())),
+        _ => out.insert(0, ("user", note.to_string(), String::new())),
     }
     out
 }
@@ -85,14 +96,19 @@ fn claude_project_dir(cwd: &Path) -> Result<PathBuf> {
 
 /// Write the conversation as a Claude Code session for `cwd`; returns its id.
 pub fn into_claude(t: &Value, label: &str, cwd: &Path) -> Result<String> {
+    write_claude(turns(t, label), &format!("Pulled: {label}"), s(t, "model"), "", cwd)
+}
+
+/// Write ready-made turns as a Claude Code session for `cwd`; returns its id.
+/// It then shows up in `claude --resume` (and the desktop app) for that folder.
+pub fn write_claude(turns: Vec<Turn>, title: &str, model: &str, branch: &str, cwd: &Path) -> Result<String> {
     let sid = uuid4();
     let cwd_s = cwd.to_string_lossy().to_string();
-    let model = s(t, "model");
     let now = crate::team::now_rfc3339();
-    let title = clip(&format!("Pulled: {label}"), 80);
+    let title = clip(title, 80);
     let mut lines = vec![json!({ "type": "ai-title", "aiTitle": title, "sessionId": sid })];
     let mut parent: Option<String> = None;
-    for (i, (role, text, at)) in turns(t, label).into_iter().enumerate() {
+    for (i, (role, text, at)) in turns.into_iter().enumerate() {
         let uuid = uuid4();
         let message = if role == "user" {
             json!({ "role": "user", "content": text })
@@ -108,7 +124,7 @@ pub fn into_claude(t: &Value, label: &str, cwd: &Path) -> Result<String> {
         lines.push(json!({
             "parentUuid": parent, "isSidechain": false, "type": role, "message": message,
             "uuid": uuid, "timestamp": if at.is_empty() { now.as_str() } else { at.as_str() },
-            "userType": "external", "entrypoint": "cli", "cwd": cwd_s, "sessionId": sid, "gitBranch": "",
+            "userType": "external", "entrypoint": "cli", "cwd": cwd_s, "sessionId": sid, "gitBranch": branch,
         }));
         parent = Some(uuid);
     }

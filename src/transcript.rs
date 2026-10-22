@@ -56,7 +56,7 @@ fn short(v: &Value, n: usize) -> String {
 }
 
 /// Text the harness injected rather than the person typed.
-fn is_harness(text: &str) -> bool {
+pub(crate) fn is_harness(text: &str) -> bool {
     const P: &[&str] = &[
         "SessionStart:", "UserPromptSubmit hook", "PreToolUse:", "PostToolUse:", "Stop hook", "<local-command",
         "<command-name>", "<command-message>", "Caveat: The messages below", "The following deferred tools",
@@ -68,7 +68,7 @@ fn is_harness(text: &str) -> bool {
     P.iter().any(|p| t.starts_with(p))
 }
 
-fn strip_reminders(text: &str) -> String {
+pub(crate) fn strip_reminders(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut rest = text;
     while let Some(start) = rest.find("<system-reminder>") {

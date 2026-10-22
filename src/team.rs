@@ -739,7 +739,7 @@ mod tests {
 // ── Interactive menu (`pine -i`) ─────────────────────────────────────────────
 
 /// Read one trimmed line; None on EOF (Ctrl-D).
-fn ask(prompt: &str) -> Option<String> {
+pub(crate) fn ask(prompt: &str) -> Option<String> {
     use std::io::Write;
     print!("{prompt}");
     let _ = std::io::stdout().flush();

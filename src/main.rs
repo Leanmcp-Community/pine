@@ -13,6 +13,7 @@ use ulid::Ulid;
 
 mod banner;
 mod ca;
+mod handoff;
 mod cloud;
 mod launcher;
 mod log;
@@ -191,6 +192,17 @@ enum Cmd {
         #[arg(long)]
         into: Option<String>,
     },
+    /// Continue a conversation in the other agent: `pn handoff claude` picks a
+    /// Codex session in this folder and adds it to Claude Code (`claude --resume`).
+    Handoff {
+        /// Agent to continue in: claude (from Codex) or codex (from Claude).
+        to: String,
+        /// Session to move: list number, session id, or file (default: pick from a list).
+        session: Option<String>,
+        /// List sessions from every folder, not just this one.
+        #[arg(long, default_value_t = false)]
+        all: bool,
+    },
     /// Print the compact transcript sync would upload for a session (debugging).
     #[command(hide = true)]
     Transcript {
@@ -337,6 +349,7 @@ fn main() -> Result<()> {
         Some(Cmd::Checkpoints) => runtime()?.block_on(team::checkpoints()),
         Some(Cmd::Pull { target, into }) => runtime()?.block_on(team::pull(target, into)),
         Some(Cmd::Open { id }) => team::open(id),
+        Some(Cmd::Handoff { to, session, all }) => handoff::run(&to, session, all),
         Some(Cmd::Transcript { id }) => {
             let t = transcript::build(&paths::session_dir(&id)?).ok_or_else(|| anyhow::anyhow!("no conversation in {id}"))?;
             println!("{}", serde_json::to_string_pretty(&t)?);
