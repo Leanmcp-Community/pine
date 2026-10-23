@@ -17,6 +17,7 @@ mod handoff;
 mod cloud;
 mod launcher;
 mod log;
+mod native;
 mod paths;
 mod proxy;
 mod sse;

@@ -268,6 +268,10 @@ struct SessionSync {
     /// Deleted on the web (the server answered 410): never upload it again.
     #[serde(default)]
     deleted: bool,
+    /// A native file we never upload: a Codex sub-agent thread, or a session
+    /// that ran through pn and is already synced from ~/.pine.
+    #[serde(default)]
+    skip: bool,
 }
 
 fn state_path() -> Result<PathBuf> {
@@ -362,6 +366,11 @@ fn pending_sessions() -> Result<usize> {
             n += 1;
         }
     }
+    for f in native_sessions(false) {
+        if state.sessions.get(&f.id).is_none_or(|s| !s.deleted && !s.skip && s.sig != f.size) {
+            n += 1;
+        }
+    }
     Ok(n)
 }
 
@@ -392,16 +401,10 @@ fn github_repo(remote: &str) -> Option<String> {
 
 /// Tell Pine about a session (repo, branch, commit). Returns Pine's note when
 /// the repo couldn't be verified and the session stays private.
-async fn register(c: &reqwest::Client, auth: &Auth, id: &str, dir: &Path) -> Result<Option<String>> {
-    let meta: Value = std::fs::read(dir.join("meta.json"))
-        .ok()
-        .and_then(|b| serde_json::from_slice(&b).ok())
-        .unwrap_or(Value::Null);
-    let cwd = meta["cwd"].as_str().unwrap_or_default();
+async fn register(c: &reqwest::Client, auth: &Auth, id: &str, meta: &crate::native::Meta, agent: &str) -> Result<Option<String>> {
+    let cwd = meta.cwd.as_str();
     let repo = if cwd.is_empty() { None } else { git(cwd, &["remote", "get-url", "origin"]).and_then(|r| github_repo(&r)) };
-    let title = repo
-        .clone()
-        .or_else(|| Path::new(cwd).file_name().map(|n| n.to_string_lossy().to_string()));
+    let title = meta.title.clone().or_else(|| repo.clone()).or_else(|| Path::new(cwd).file_name().map(|n| n.to_string_lossy().to_string()));
     let res = api_json(
         c.put(format!("{}/api/v1/sessions/{id}", api_base(Some(auth))))
             .bearer_auth(&auth.token)
@@ -409,9 +412,9 @@ async fn register(c: &reqwest::Client, auth: &Auth, id: &str, dir: &Path) -> Res
                 "repo": repo,
                 "branch": if cwd.is_empty() { None } else { git(cwd, &["rev-parse", "--abbrev-ref", "HEAD"]) },
                 "commit": if cwd.is_empty() { None } else { git(cwd, &["rev-parse", "--short", "HEAD"]) },
-                "agent": meta["target"].as_str().unwrap_or("claude"),
+                "agent": agent,
                 "title": title,
-                "started_at": meta["started_at"].as_str().map(String::from).unwrap_or_else(now_rfc3339),
+                "started_at": if meta.started_at.is_empty() { now_rfc3339() } else { meta.started_at.clone() },
             })),
     )
     .await?;
@@ -431,30 +434,71 @@ fn say(msg: &str) {
     let _ = std::io::stdout().flush();
 }
 
-/// "01M5ET… (PINE_MD)": short id plus the folder it ran in.
-fn session_label(id: &str, dir: &Path) -> String {
-    let cwd = std::fs::read(dir.join("meta.json")).ok().and_then(|b| serde_json::from_slice::<Value>(&b).ok()).and_then(|m| m["cwd"].as_str().map(str::to_string));
-    let folder = cwd.as_deref().and_then(|c| Path::new(c).file_name()).map(|f| f.to_string_lossy().to_string()).unwrap_or_default();
-    format!("{}… ({})", &id[..id.len().min(8)], if folder.is_empty() { "no folder" } else { &folder })
+/// Where a session's conversation comes from.
+enum Source<'a> {
+    /// Recorded by `pn` / `pn codex` in `~/.pine/sessions/<id>`.
+    Pine(&'a Path),
+    /// Saved by Claude Code or Codex themselves: plain CLI or desktop app.
+    Native(&'a crate::native::Native),
 }
 
 /// Upload one session's conversation if anything changed. Builds a compact
-/// transcript locally (src/transcript.rs) and replaces it on Pine; the raw
-/// capture never leaves this machine. Returns bytes uploaded.
-async fn sync_session(c: &reqwest::Client, auth: &Auth, state: &mut SyncState, id: &str, dir: &Path, verbose: bool) -> Result<u64> {
-    // Raw files only ever grow, so their total size is a cheap change signal.
-    let sig: u64 = session_files(dir).iter().map(|(_, len)| len).sum();
+/// transcript locally (src/transcript.rs, src/native.rs) and replaces it on
+/// Pine; raw files never leave this machine. Returns bytes uploaded.
+async fn sync_session(
+    c: &reqwest::Client,
+    auth: &Auth,
+    state: &mut SyncState,
+    recorded: &mut Option<crate::native::Recorded>,
+    id: &str,
+    src: Source<'_>,
+    verbose: bool,
+) -> Result<u64> {
+    // Files only ever grow, so their size is a cheap change signal.
+    let sig: u64 = match src {
+        Source::Pine(dir) => session_files(dir).iter().map(|(_, len)| len).sum(),
+        Source::Native(n) => n.size,
+    };
     let entry = state.sessions.entry(id.to_string()).or_default();
-    if entry.deleted || (entry.registered && entry.sig == sig) {
+    if entry.deleted || entry.skip || (entry.registered && entry.sig == sig) {
         return Ok(0);
     }
-    let label = session_label(id, dir);
+    let (t, meta, agent, origin) = match src {
+        Source::Pine(dir) => {
+            let m: Value = std::fs::read(dir.join("meta.json")).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or(Value::Null);
+            let meta = crate::native::Meta {
+                cwd: m["cwd"].as_str().unwrap_or_default().to_string(),
+                started_at: m["started_at"].as_str().unwrap_or_default().to_string(),
+                title: None,
+            };
+            let agent = m["target"].as_str().unwrap_or("claude").to_string();
+            (crate::transcript::build(dir), meta, agent, "pn")
+        }
+        Source::Native(n) => {
+            let Some((t, meta)) = crate::native::read(n) else {
+                if n.agent == "codex" {
+                    entry.skip = true; // a sub-agent thread: it's part of its parent
+                } else {
+                    entry.sig = sig; // a copy made by pn: look again once it grows
+                }
+                return Ok(0);
+            };
+            let r = recorded.get_or_insert_with(|| crate::native::Recorded::from_pine(&local_sessions(true).unwrap_or_default()));
+            if r.covers(n, &meta) {
+                entry.skip = true; // ran through pn: already synced from ~/.pine
+                return Ok(0);
+            }
+            (Some(t), meta, n.agent.to_string(), n.agent)
+        }
+    };
+    let folder = Path::new(&meta.cwd).file_name().map(|f| f.to_string_lossy().to_string()).unwrap_or_else(|| "no folder".into());
+    let label = format!("{}… {origin} ({folder})", &id[..id.len().min(8)]);
     if verbose {
         say(&format!("→ {label}: new activity, uploading…"));
     }
     if !entry.registered {
-        match register(c, auth, id, dir).await {
-            Ok(Some(note)) if verbose => eprintln!("  {id}: {note}"),
+        match register(c, auth, id, &meta, &agent).await {
+            Ok(Some(note)) if verbose => say(&format!("  {label}: {note}")),
             Ok(_) => {}
             Err(e) if e.to_string().ends_with("(HTTP 410)") => {
                 if verbose {
@@ -467,7 +511,7 @@ async fn sync_session(c: &reqwest::Client, auth: &Auth, state: &mut SyncState, i
         }
         entry.registered = true;
     }
-    let Some(mut t) = crate::transcript::build(dir) else {
+    let Some(mut t) = t.filter(|t| !t.messages.is_empty()) else {
         entry.sig = sig; // nothing conversational yet
         if verbose {
             say(&format!("· {label}: no conversation in it yet"));
@@ -513,17 +557,30 @@ async fn sync_session(c: &reqwest::Client, auth: &Auth, state: &mut SyncState, i
     Ok(body.len() as u64)
 }
 
-/// One pass over every local session.
+/// Claude Code / Codex sessions sync covers: since login, or all with `--all`.
+fn native_sessions(all: bool) -> Vec<crate::native::Native> {
+    let since = if all { 0 } else { load_auth().map(|a| a.since_ms).unwrap_or(u64::MAX) };
+    crate::native::discover().into_iter().filter(|n| n.created_ms >= since).collect()
+}
+
+/// One pass over every local session: pn's recordings, then Claude Code's
+/// and Codex's own files.
 async fn sync_once(verbose: bool, all: bool) -> Result<(u64, usize)> {
     let auth = require_auth()?;
     let c = client()?;
     let mut state = load_state();
+    let mut recorded = None; // built only if a native file changed
     let mut total = 0;
     let mut result = Ok(());
     let sessions = local_sessions(all)?;
-    let checked = sessions.len();
-    for (id, dir) in sessions {
-        match sync_session(&c, &auth, &mut state, &id, &dir, verbose).await {
+    let natives = native_sessions(all);
+    let checked = sessions.len() + natives.len();
+    let sources = sessions
+        .iter()
+        .map(|(id, dir)| (id.as_str(), Source::Pine(dir)))
+        .chain(natives.iter().map(|n| (n.id.as_str(), Source::Native(n))));
+    for (id, src) in sources {
+        match sync_session(&c, &auth, &mut state, &mut recorded, id, src, verbose).await {
             Ok(n) => total += n,
             Err(e) => {
                 result = Err(e);
@@ -557,12 +614,16 @@ pub async fn sync_cmd(sub: Option<SyncCmd>, once: bool, all: bool) -> Result<()>
                 bail!("Sync is paused. Run `pn sync resume` first.");
             }
             // Say what's covered up front: otherwise an up-to-date sync prints nothing at all.
-            let covered = local_sessions(all)?.len();
+            let natives = native_sessions(all);
+            let claude = natives.iter().filter(|n| n.agent == "claude").count();
+            let covered = local_sessions(all)?.len() + natives.len();
             println!("Syncing as @{} to {}", auth.login, auth.api);
             println!(
-                "  {} recorded with `pn` / `pn codex` {}.",
+                "  {} {}: {} from pn, {claude} Claude Code, {} Codex (CLI and desktop apps).",
                 sessions_label(covered),
-                if all { "on this machine" } else { "since you logged in (add --all for older ones)" }
+                if all { "on this machine" } else { "since you logged in (add --all for older ones)" },
+                covered - natives.len(),
+                natives.len() - claude,
             );
             // Each session prints its own lines (sync_session); between them one
             // in-place status line shows the watcher is alive.
@@ -643,7 +704,7 @@ pub async fn checkpoint(name: String, note: Option<String>, session: Option<Stri
     let mut state = load_state();
     let dir = crate::paths::session_dir(&id)?;
     if dir.is_dir() && !dir.join(".pulled").exists() {
-        sync_session(&c, &auth, &mut state, &id, &dir, true).await?;
+        sync_session(&c, &auth, &mut state, &mut None, &id, Source::Pine(&dir), true).await?;
         save_state(&state)?;
     }
     let offsets = state.sessions.get(&id).map(|s| json!(s.files));

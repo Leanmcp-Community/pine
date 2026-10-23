@@ -47,7 +47,7 @@ fn clip(s: &str, n: usize) -> String {
     out
 }
 
-fn short(v: &Value, n: usize) -> String {
+pub(crate) fn short(v: &Value, n: usize) -> String {
     let s = match v {
         Value::String(s) => s.clone(),
         other => other.to_string(),
@@ -85,7 +85,7 @@ pub(crate) fn strip_reminders(text: &str) -> String {
     out.trim().to_string()
 }
 
-fn push_text(out: &mut Vec<Msg>, role: &str, text: &str, at: &str, model: &str) {
+pub(crate) fn push_text(out: &mut Vec<Msg>, role: &str, text: &str, at: &str, model: &str) {
     let text = strip_reminders(text);
     if text.is_empty() {
         return;
@@ -103,7 +103,7 @@ fn push_text(out: &mut Vec<Msg>, role: &str, text: &str, at: &str, model: &str) 
     });
 }
 
-fn attach_output(out: &mut [Msg], v: &Value) {
+pub(crate) fn attach_output(out: &mut [Msg], v: &Value) {
     if let Some(Msg::Tool { output, .. }) = out.iter_mut().rev().find(|m| matches!(m, Msg::Tool { .. })) {
         if output.is_none() {
             *output = Some(short(v, 60));
@@ -276,7 +276,7 @@ fn decode_ws(jsonl: &str) -> Vec<(String, String, String)> {
     out
 }
 
-fn codex_item(out: &mut Vec<Msg>, it: &Value, at: &str, model: &str) {
+pub(crate) fn codex_item(out: &mut Vec<Msg>, it: &Value, at: &str, model: &str) {
     match it["type"].as_str() {
         Some("message") => {
             let text = match &it["content"] {

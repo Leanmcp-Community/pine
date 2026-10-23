@@ -58,7 +58,7 @@ Only sessions started after `pn login` are shared. To share older ones on purpos
 | `pn proxy` | Run only the proxy and print the env vars to wire up any client. |
 | `pn login` / `pn logout` | GitHub device-flow login to Pine / revoke this device. Recording continues locally either way. |
 | `pn whoami` | Who you are, and whether sync is live, paused or local-only (works offline). |
-| `pn sync` | Upload now and keep watching. Also `--once`, `--all`, `status`, `pause`, `resume`. |
+| `pn sync` | Upload now and keep watching: sessions run through `pn`, plus Claude Code's and Codex's own sessions (plain `claude` / `codex` and both desktop apps). Since login by default; `--all` for everything. Also `--once`, `status`, `pause`, `resume`. |
 | `pn checkpoint "name" [-m note] [--session id]` | Name the current conversation at this moment. |
 | `pn checkpoints` | Your team's checkpoints. |
 | `pn pull <checkpoint-name \| session-id> [--into claude\|codex]` | Download a teammate's checkpoint or session and set it up to continue in this folder: a resumable Claude Code session (`pn -- --resume <id>`), or for Codex a `conversation.md` to start from. Run it inside your clone of the repo. |
