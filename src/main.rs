@@ -25,6 +25,7 @@ mod team;
 mod transcript;
 mod resume;
 mod update;
+mod watch;
 mod ws;
 
 /// Version string shown by `pine --version`. Composed of the
@@ -193,6 +194,18 @@ enum Cmd {
         #[arg(long)]
         into: Option<String>,
     },
+    /// Sync in the background: `pn watch --install` once and it runs at every
+    /// login, no terminal needed. `pn watch status` to check on it.
+    Watch {
+        /// `status`: is it running, plus the last lines of its log.
+        action: Option<String>,
+        /// Start it now and at every login (macOS launchd / Linux systemd).
+        #[arg(long, default_value_t = false)]
+        install: bool,
+        /// Stop it and remove it from login.
+        #[arg(long, default_value_t = false)]
+        uninstall: bool,
+    },
     /// Continue a conversation in the other agent: `pn handoff claude` picks a
     /// Codex session in this folder and adds it to Claude Code (`claude --resume`).
     Handoff {
@@ -351,6 +364,13 @@ fn main() -> Result<()> {
         Some(Cmd::Pull { target, into }) => runtime()?.block_on(team::pull(target, into)),
         Some(Cmd::Open { id }) => team::open(id),
         Some(Cmd::Handoff { to, session, all }) => handoff::run(&to, session, all),
+        Some(Cmd::Watch { action, install, uninstall }) => match (action.as_deref(), install, uninstall) {
+            (_, true, _) => watch::install(),
+            (_, _, true) => watch::uninstall(),
+            (Some("status"), _, _) => watch::status(),
+            (None, _, _) => runtime()?.block_on(team::watch_loop()),
+            (Some(other), _, _) => anyhow::bail!("unknown: pn watch {other} (try --install, --uninstall or status)"),
+        },
         Some(Cmd::Transcript { id }) => {
             let t = transcript::build(&paths::session_dir(&id)?).ok_or_else(|| anyhow::anyhow!("no conversation in {id}"))?;
             println!("{}", serde_json::to_string_pretty(&t)?);

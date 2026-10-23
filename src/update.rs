@@ -129,6 +129,7 @@ pub async fn run() -> Result<()> {
         .with_context(|| format!("replacing {} (need write access to {})", exe.display(), exe_dir.display()))?;
     drop(cleanup);
     println!(">>> Updated: {current_version} -> {new_version}");
+    crate::watch::restart_if_installed(); // the background sync picks up the new binary
     Ok(())
 }
 

@@ -427,11 +427,49 @@ pub(crate) fn now_rfc3339() -> String {
         .unwrap_or_default()
 }
 
-/// A sync log line. Clears the in-place "watching" line first so they don't mix.
+/// A sync log line. In a terminal it clears the in-place "watching" line
+/// first; in a log file (`pn watch`) it gets a UTC timestamp instead.
 fn say(msg: &str) {
-    use std::io::Write;
-    println!("\r\x1b[K{msg}");
+    use std::io::{IsTerminal, Write};
+    if std::io::stdout().is_terminal() {
+        println!("\r\x1b[K{msg}");
+    } else {
+        let fmt = time::macros::format_description!("[year]-[month]-[day] [hour]:[minute]:[second]Z");
+        println!("{} {msg}", time::OffsetDateTime::now_utc().format(&fmt).unwrap_or_default());
+    }
     let _ = std::io::stdout().flush();
+}
+
+/// The background watcher (`pn watch`, run by launchd / systemd): `pn sync`
+/// that never exits. Logged out or paused: it waits and checks again.
+pub async fn watch_loop() -> Result<()> {
+    say(&format!("Pine watch started ({}).", crate::PINE_VERSION));
+    let (mut waiting, mut last_err) = (String::new(), String::new());
+    loop {
+        let why = if load_auth().is_none() {
+            "not logged in (run `pn login`)"
+        } else if sync_paused() {
+            "sync is paused (run `pn sync resume`)"
+        } else {
+            ""
+        };
+        if why != waiting {
+            say(&if why.is_empty() { "Syncing.".to_string() } else { format!("Waiting: {why}.") });
+            waiting = why.to_string();
+        }
+        if why.is_empty() {
+            match sync_once(true, false).await {
+                Ok(_) => last_err.clear(),
+                // Offline etc.: log it once, not every 2 seconds.
+                Err(e) if e.to_string() != last_err => {
+                    say(&format!("! {e:#}. Retrying."));
+                    last_err = e.to_string();
+                }
+                Err(_) => {}
+            }
+        }
+        tokio::time::sleep(if why.is_empty() { LIVE_EVERY } else { Duration::from_secs(15) }).await;
+    }
 }
 
 /// Where a session's conversation comes from.
