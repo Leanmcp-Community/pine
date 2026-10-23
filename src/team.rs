@@ -382,7 +382,7 @@ fn sessions_label(n: usize) -> String {
     }
 }
 
-fn git(cwd: &str, args: &[&str]) -> Option<String> {
+pub(crate) fn git(cwd: &str, args: &[&str]) -> Option<String> {
     let out = std::process::Command::new("git").arg("-C").arg(cwd).args(args).output().ok()?;
     out.status.success().then(|| String::from_utf8_lossy(&out.stdout).trim().to_string()).filter(|s| !s.is_empty())
 }

@@ -64,7 +64,7 @@ Only sessions started after `pn login` are shared. To share older ones on purpos
 | `pn checkpoint "name" [-m note] [--session id]` | Name the current conversation at this moment. |
 | `pn checkpoints` | Your team's checkpoints. |
 | `pn pull <checkpoint-name \| session-id> [--into claude\|codex]` | Download a teammate's checkpoint or session and set it up to continue in this folder: a resumable Claude Code session (`pn -- --resume <id>`), or for Codex a `conversation.md` to start from. Run it inside your clone of the repo. |
-| `pn handoff claude [n \| id] [--all]` | Continue a Codex session (CLI or desktop app) in Claude Code. Lists the Codex sessions in this folder, then adds the one you pick to `claude --resume` here. Nothing is uploaded. |
+| `pn handoff claude` / `pn handoff codex` `[n \| id] [--all]` | Continue a session in the other agent, on this machine. `claude`: pick a Codex session (CLI or desktop app) in this folder and add it to `claude --resume`. `codex`: pick a Claude Code session and add it to `codex resume` and the Codex app. Nothing is uploaded. |
 | `pn open [id]` | Open a session (default: the latest) on app.usepine.dev. |
 | `pn -i` | Interactive menu: login, sync, checkpoints, sessions. |
 | `pn ca trust` / `pn ca untrust` | Add or remove Pine's root CA in the macOS login keychain. |

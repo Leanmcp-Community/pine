@@ -17,7 +17,7 @@ use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
 use anyhow::{bail, Context, Result};
-use serde_json::Value;
+use serde_json::{json, Value};
 
 use crate::resume::{alternate, clip, write_claude, Turn};
 
@@ -279,37 +279,36 @@ fn ago(t: SystemTime) -> String {
 pub fn run(to: &str, session: Option<String>, all: bool) -> Result<()> {
     match to {
         "claude" => codex_to_claude(session, all),
-        "codex" => bail!("Claude → Codex is next; for now use: pn pull <session> --into codex"),
+        "codex" => claude_to_codex(session, all),
         other => bail!("handoff goes to claude or codex, not {other}"),
     }
 }
 
-fn codex_to_claude(session: Option<String>, all: bool) -> Result<()> {
-    let here = std::env::current_dir()?;
-    let here_s = here.to_string_lossy().to_string();
-    let mut threads = codex_threads()?;
-    if !all {
-        threads.retain(|t| t.cwd == here_s);
-    }
-    let pick = match session {
-        // A list number, a Codex thread id (or its start), or a rollout file.
+/// Which session to move: a list number, an id (or its start), or a file.
+/// With nothing given, show this folder's sessions and ask (Enter = newest).
+fn pick(
+    mut threads: Vec<CodexThread>,
+    everything: fn() -> Result<Vec<CodexThread>>,
+    session: Option<String>,
+    all: bool,
+    here: &str,
+    agent: &str,
+) -> Result<CodexThread> {
+    match session {
         Some(s) if Path::new(&s).is_file() => {
-            let path = PathBuf::from(&s);
-            let found = codex_threads()?.into_iter().find(|t| t.path == path);
-            found.with_context(|| format!("{s} isn't a Codex session file"))?
+            let path = PathBuf::from(&s).canonicalize()?;
+            let found = everything()?.into_iter().find(|t| t.path.canonicalize().is_ok_and(|p| p == path));
+            found.with_context(|| format!("{s} isn't a {agent} session file"))
         }
-        Some(s) => {
-            let by_num = s.parse::<usize>().ok().filter(|n| *n >= 1 && *n <= threads.len()).map(|n| n - 1);
-            match by_num {
-                Some(i) => threads.swap_remove(i),
-                None => codex_threads()?.into_iter().find(|t| t.id.starts_with(&s)).with_context(|| format!("no Codex session {s}"))?,
-            }
-        }
+        Some(s) => match s.parse::<usize>().ok().filter(|n| *n >= 1 && *n <= threads.len()) {
+            Some(n) => Ok(threads.swap_remove(n - 1)),
+            None => everything()?.into_iter().find(|t| t.id.starts_with(&s)).with_context(|| format!("no {agent} session {s}")),
+        },
         None => {
             if threads.is_empty() {
-                bail!("No Codex sessions in {here_s}. Run this inside the folder you used Codex in, or add --all.");
+                bail!("No {agent} sessions in {here}. Run this inside the folder you used {agent} in, or add --all.");
             }
-            println!("Codex sessions{}:", if all { String::new() } else { format!(" in {here_s}") });
+            println!("{agent} sessions{}:", if all { String::new() } else { format!(" in {here}") });
             for (i, t) in threads.iter().take(15).enumerate() {
                 let title = if t.title.is_empty() { first_prompt(&t.path).unwrap_or_else(|| t.id.clone()) } else { t.title.clone() };
                 let place = if all { format!("  {}", t.cwd) } else { String::new() };
@@ -324,9 +323,19 @@ fn codex_to_claude(session: Option<String>, all: bool) -> Result<()> {
             if n == 0 || n > threads.len().min(15) {
                 bail!("pick a number from 1 to {}", threads.len().min(15));
             }
-            threads.swap_remove(n - 1)
+            Ok(threads.swap_remove(n - 1))
         }
-    };
+    }
+}
+
+fn codex_to_claude(session: Option<String>, all: bool) -> Result<()> {
+    let here = std::env::current_dir()?;
+    let here_s = here.to_string_lossy().to_string();
+    let mut threads = codex_threads()?;
+    if !all {
+        threads.retain(|t| t.cwd == here_s);
+    }
+    let pick = pick(threads, codex_threads, session, all, &here_s, "Codex")?;
 
     let c = read_codex(&pick.path, &pick.title)?;
     if c.turns.len() < 2 {
@@ -344,6 +353,183 @@ fn codex_to_claude(session: Option<String>, all: bool) -> Result<()> {
     if cwd == here && std::io::stdin().is_terminal() && crate::team::ask("Open it now? [Y/n] ").is_some_and(|a| a.is_empty() || a.eq_ignore_ascii_case("y")) {
         // Through pn, so the continued conversation is recorded too.
         let status = std::process::Command::new(std::env::current_exe()?).args(["--", "--resume", &sid]).status()?;
+        std::process::exit(status.code().unwrap_or(0));
+    }
+    Ok(())
+}
+
+
+// ── Claude Code → Codex ─────────────────────────────────────────────────────
+
+/// Folder, title and "has Claude replied?" from a quick pass over a Claude
+/// Code session file. A file with no real reply is a copy pn made from Codex.
+fn scan_claude(path: &Path) -> Option<(String, String, bool)> {
+    let f = std::fs::File::open(path).ok()?;
+    let (mut cwd, mut title, mut first, mut real) = (String::new(), String::new(), String::new(), false);
+    for line in BufReader::new(f).lines().map_while(Result::ok) {
+        if line.contains(r#""type":"ai-title""#) {
+            if let Some(t) = serde_json::from_str::<Value>(&line).ok().and_then(|v| v["aiTitle"].as_str().map(str::to_string)) {
+                title = t;
+            }
+        } else if line.contains(r#""type":"assistant""#) && !line.contains("msg_pine_") && !line.contains(r#""isSidechain":true"#) {
+            real = true;
+        } else if (cwd.is_empty() || first.is_empty()) && line.contains(r#""type":"user""#) {
+            let Ok(v) = serde_json::from_str::<Value>(&line) else { continue };
+            if cwd.is_empty() {
+                cwd = v["cwd"].as_str().unwrap_or_default().to_string();
+            }
+            if first.is_empty() && v["isMeta"] != true {
+                let text = crate::transcript::strip_reminders(&text_of(&v["message"]["content"]));
+                if !text.is_empty() && !crate::transcript::is_harness(&text) {
+                    first = text.split_whitespace().collect::<Vec<_>>().join(" ");
+                }
+            }
+        }
+    }
+    Some((cwd, if title.is_empty() { first } else { title }, real))
+}
+
+/// Your Claude Code sessions, newest first (every folder; filter by cwd).
+pub fn claude_threads() -> Result<Vec<CodexThread>> {
+    let root = dirs::home_dir().context("no home dir")?.join(".claude/projects");
+    let mut out = vec![];
+    for proj in std::fs::read_dir(root).into_iter().flatten().flatten() {
+        for f in std::fs::read_dir(proj.path()).into_iter().flatten().flatten() {
+            let path = f.path();
+            if path.extension().is_none_or(|x| x != "jsonl") {
+                continue;
+            }
+            let Some((cwd, title, real)) = scan_claude(&path) else { continue };
+            if !real {
+                continue;
+            }
+            out.push(CodexThread {
+                id: path.file_stem().unwrap_or_default().to_string_lossy().to_string(),
+                modified: std::fs::metadata(&path).and_then(|m| m.modified()).unwrap_or(SystemTime::UNIX_EPOCH),
+                cwd,
+                title,
+                path,
+            });
+        }
+    }
+    out.sort_by(|a, b| b.modified.cmp(&a.modified));
+    Ok(out)
+}
+
+/// A Claude Code session → Codex-ready turns. Follows Claude's own /compact
+/// (a compact summary replaces what came before); sub-agents and thinking are left out.
+pub fn read_claude(path: &Path, title: &str) -> Result<Converted> {
+    let text = std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+    let (mut items, mut calls): (Vec<Item>, HashMap<String, usize>) = (Vec::new(), HashMap::new());
+    let (mut model, mut branch, mut cwd, mut started) = (String::new(), String::new(), String::new(), String::new());
+    for line in text.lines() {
+        let Ok(v) = serde_json::from_str::<Value>(line) else { continue };
+        let role: &'static str = match v["type"].as_str() {
+            Some("user") => "user",
+            Some("assistant") => "assistant",
+            _ => continue,
+        };
+        if v["isSidechain"] == true || v["isMeta"] == true {
+            continue;
+        }
+        let at = v["timestamp"].as_str().unwrap_or_default();
+        if cwd.is_empty() {
+            cwd = v["cwd"].as_str().unwrap_or_default().to_string();
+            started = at.to_string();
+        }
+        if let Some(b) = v["gitBranch"].as_str().filter(|b| !b.is_empty()) {
+            branch = b.to_string();
+        }
+        let msg = &v["message"];
+        if let Some(m) = msg["model"].as_str().filter(|m| m.starts_with("claude")) {
+            model = m.to_string();
+        }
+        if v["isCompactSummary"] == true {
+            items.clear();
+            calls.clear();
+            items.push(Item { role: "user", text: format!("[Claude's summary of the earlier conversation]\n{}", text_of(&msg["content"])), at: at.to_string(), short: None });
+            continue;
+        }
+        let blocks = match &msg["content"] {
+            Value::String(s) => vec![json!({ "type": "text", "text": s })],
+            Value::Array(a) => a.clone(),
+            _ => continue,
+        };
+        for b in blocks {
+            match b["type"].as_str() {
+                Some("text") => {
+                    let t = crate::transcript::strip_reminders(b["text"].as_str().unwrap_or_default());
+                    if !t.is_empty() && !crate::transcript::is_harness(&t) {
+                        items.push(Item { role, text: t, at: at.to_string(), short: None });
+                    }
+                }
+                Some("tool_use") => {
+                    let name = b["name"].as_str().unwrap_or("tool");
+                    let inp = &b["input"];
+                    // Bash: the command; file tools: the path; otherwise the JSON.
+                    let input = inp["command"].as_str().map(str::to_string).unwrap_or_else(|| match inp["file_path"].as_str() {
+                        Some(p) if name != "Edit" && name != "Write" => p.to_string(),
+                        _ => inp.to_string(),
+                    });
+                    if let Some(id) = b["id"].as_str() {
+                        calls.insert(id.to_string(), items.len());
+                    }
+                    items.push(Item {
+                        role: "assistant",
+                        text: format!("[tool: {name}] {}", clip(input.trim(), MAX_TOOL_INPUT)),
+                        at: at.to_string(),
+                        short: Some(format!("[tool: {name}] {}", clip(input.trim().lines().next().unwrap_or_default(), 160))),
+                    });
+                }
+                Some("tool_result") => {
+                    let Some(&i) = b["tool_use_id"].as_str().and_then(|c| calls.get(c)) else { continue };
+                    let out = text_of(&b["content"]);
+                    if !out.trim().is_empty() {
+                        items[i].text += &format!("\n→ {}", clip(out.trim(), MAX_TOOL_OUTPUT));
+                    }
+                }
+                _ => {} // thinking, images
+            }
+        }
+    }
+    let messages = items.len();
+    let dropped = fit(&mut items);
+    let mut note = format!(
+        "[Continued from a Claude Code session{}{}, started {}. Tool calls appear as text; the files in this folder are the current state.]",
+        if title.is_empty() { String::new() } else { format!(" \"{title}\"") },
+        if model.is_empty() { String::new() } else { format!(" ({model})") },
+        started.get(..10).unwrap_or("earlier"),
+    );
+    if dropped > 0 {
+        note += &format!("\n[{dropped} earlier messages were left out to fit.]");
+    }
+    let turns = alternate(items.into_iter().map(|i| (i.role, i.text, i.at)).collect(), &note);
+    Ok(Converted { turns, messages, model, branch, cwd })
+}
+
+fn claude_to_codex(session: Option<String>, all: bool) -> Result<()> {
+    let here = std::env::current_dir()?;
+    let here_s = here.to_string_lossy().to_string();
+    let mut threads = claude_threads()?;
+    if !all {
+        threads.retain(|t| t.cwd == here_s);
+    }
+    let pick = pick(threads, claude_threads, session, all, &here_s, "Claude Code")?;
+    let c = read_claude(&pick.path, &pick.title)?;
+    if c.turns.len() < 2 {
+        bail!("that Claude Code session has no conversation yet");
+    }
+    let cwd = Some(PathBuf::from(&c.cwd)).filter(|p| !c.cwd.is_empty() && p.is_dir()).unwrap_or(here.clone());
+    let title = format!("From Claude: {}", clip(if pick.title.is_empty() { "conversation" } else { &pick.title }, 60));
+    let id = crate::into_codex::write_codex(c.turns, &title, &cwd)?;
+
+    println!("✓ Added to Codex: {title} ({} messages)", c.messages);
+    let cd = if cwd != here { format!("cd {} && ", cwd.display()) } else { String::new() };
+    println!("  Continue it:  {cd}pn codex -- resume {id}     (or: {cd}codex resume {id})");
+    println!("  It's also in `codex resume` and the Codex desktop app (restart the app if it's open).");
+    if cwd == here && std::io::stdin().is_terminal() && crate::team::ask("Open it now? [Y/n] ").is_some_and(|a| a.is_empty() || a.eq_ignore_ascii_case("y")) {
+        // Through pn, so the continued conversation is recorded too.
+        let status = std::process::Command::new(std::env::current_exe()?).args(["codex", "--", "resume", &id]).status()?;
         std::process::exit(status.code().unwrap_or(0));
     }
     Ok(())
@@ -410,6 +596,24 @@ mod real {
             if let Some(last) = c.turns.last() {
                 println!("   last {}: {}", last.0, super::clip(&last.1.replace('\n', " "), 140));
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod real_claude {
+    /// Reads your own newest Claude Code sessions, writes nothing:
+    /// `cargo test real_claude_sessions -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn real_claude_sessions() {
+        let all = super::claude_threads().unwrap();
+        println!("{} Claude Code sessions with real replies", all.len());
+        for t in all.iter().take(4) {
+            let c = super::read_claude(&t.path, &t.title).unwrap();
+            let chars: usize = c.turns.iter().map(|x| x.1.len()).sum();
+            println!("{} | {} | {} msgs -> {} turns, {chars} chars | {}", &t.id[..8], t.cwd, c.messages, c.turns.len(), super::clip(&t.title, 50));
+            println!("   first: {}", super::clip(&c.turns[0].1.replace('\n', " "), 150));
         }
     }
 }

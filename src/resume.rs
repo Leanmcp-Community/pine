@@ -75,7 +75,7 @@ pub fn alternate(items: Vec<Turn>, note: &str) -> Vec<Turn> {
 }
 
 /// A random v4 UUID (Claude Code names sessions by UUID).
-fn uuid4() -> String {
+pub(crate) fn uuid4() -> String {
     let mut b = ulid::Ulid::new().0.to_be_bytes();
     // A ULID's first 6 bytes are a timestamp; mix in more randomness.
     let r = ulid::Ulid::new().0.to_le_bytes();
@@ -89,7 +89,7 @@ fn uuid4() -> String {
 }
 
 /// Claude Code keys projects by the absolute cwd with every non-alphanumeric char as `-`.
-fn claude_project_dir(cwd: &Path) -> Result<PathBuf> {
+pub(crate) fn claude_project_dir(cwd: &Path) -> Result<PathBuf> {
     let key: String = cwd.to_string_lossy().chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '-' }).collect();
     Ok(dirs::home_dir().context("no home dir")?.join(".claude/projects").join(key))
 }

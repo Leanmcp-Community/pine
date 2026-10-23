@@ -14,6 +14,7 @@ use ulid::Ulid;
 mod banner;
 mod ca;
 mod handoff;
+mod into_codex;
 mod cloud;
 mod launcher;
 mod log;
