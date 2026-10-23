@@ -424,6 +424,20 @@ pub(crate) fn now_rfc3339() -> String {
         .unwrap_or_default()
 }
 
+/// A sync log line. Clears the in-place "watching" line first so they don't mix.
+fn say(msg: &str) {
+    use std::io::Write;
+    println!("\r\x1b[K{msg}");
+    let _ = std::io::stdout().flush();
+}
+
+/// "01M5ET… (PINE_MD)": short id plus the folder it ran in.
+fn session_label(id: &str, dir: &Path) -> String {
+    let cwd = std::fs::read(dir.join("meta.json")).ok().and_then(|b| serde_json::from_slice::<Value>(&b).ok()).and_then(|m| m["cwd"].as_str().map(str::to_string));
+    let folder = cwd.as_deref().and_then(|c| Path::new(c).file_name()).map(|f| f.to_string_lossy().to_string()).unwrap_or_default();
+    format!("{}… ({})", &id[..id.len().min(8)], if folder.is_empty() { "no folder" } else { &folder })
+}
+
 /// Upload one session's conversation if anything changed. Builds a compact
 /// transcript locally (src/transcript.rs) and replaces it on Pine; the raw
 /// capture never leaves this machine. Returns bytes uploaded.
@@ -434,11 +448,18 @@ async fn sync_session(c: &reqwest::Client, auth: &Auth, state: &mut SyncState, i
     if entry.deleted || (entry.registered && entry.sig == sig) {
         return Ok(0);
     }
+    let label = session_label(id, dir);
+    if verbose {
+        say(&format!("→ {label}: new activity, uploading…"));
+    }
     if !entry.registered {
         match register(c, auth, id, dir).await {
             Ok(Some(note)) if verbose => eprintln!("  {id}: {note}"),
             Ok(_) => {}
             Err(e) if e.to_string().ends_with("(HTTP 410)") => {
+                if verbose {
+                    say(&format!("· {label}: deleted on the web, skipping it from now on"));
+                }
                 entry.deleted = true;
                 return Ok(0);
             }
@@ -448,6 +469,9 @@ async fn sync_session(c: &reqwest::Client, auth: &Auth, state: &mut SyncState, i
     }
     let Some(mut t) = crate::transcript::build(dir) else {
         entry.sig = sig; // nothing conversational yet
+        if verbose {
+            say(&format!("· {label}: no conversation in it yet"));
+        }
         return Ok(0);
     };
     // Stay under Vercel's 4.5 MB body limit: drop the oldest messages if a session is enormous.
@@ -469,6 +493,9 @@ async fn sync_session(c: &reqwest::Client, auth: &Auth, state: &mut SyncState, i
         200 => {}
         410 => {
             entry.deleted = true; // deleted on the web: stop uploading it
+            if verbose {
+                say(&format!("· {label}: deleted on the web, skipping it from now on"));
+            }
             return Ok(0);
         }
         401 => bail!("This device was signed out of Pine. Run `pn login`."),
@@ -480,24 +507,24 @@ async fn sync_session(c: &reqwest::Client, auth: &Auth, state: &mut SyncState, i
     entry.sig = sig;
     // Checkpoint offsets for transcript sessions: "the first N messages".
     entry.files = BTreeMap::from([("transcript.json".to_string(), t.messages.len() as u64)]);
+    if verbose {
+        say(&format!("✓ {label}: {} messages, {}", t.messages.len(), human(body.len() as u64)));
+    }
     Ok(body.len() as u64)
 }
 
 /// One pass over every local session.
-async fn sync_once(verbose: bool, all: bool) -> Result<u64> {
+async fn sync_once(verbose: bool, all: bool) -> Result<(u64, usize)> {
     let auth = require_auth()?;
     let c = client()?;
     let mut state = load_state();
     let mut total = 0;
     let mut result = Ok(());
-    for (id, dir) in local_sessions(all)? {
+    let sessions = local_sessions(all)?;
+    let checked = sessions.len();
+    for (id, dir) in sessions {
         match sync_session(&c, &auth, &mut state, &id, &dir, verbose).await {
-            Ok(n) => {
-                total += n;
-                if verbose && n > 0 {
-                    println!("  ↑ {id}  {}", human(n));
-                }
-            }
+            Ok(n) => total += n,
             Err(e) => {
                 result = Err(e);
                 break;
@@ -505,7 +532,7 @@ async fn sync_once(verbose: bool, all: bool) -> Result<u64> {
         }
     }
     save_state(&state)?;
-    result.map(|_| total)
+    result.map(|_| (total, checked))
 }
 
 /// `pine sync [--once] [status|pause|resume]`
@@ -525,15 +552,45 @@ pub async fn sync_cmd(sub: Option<SyncCmd>, once: bool, all: bool) -> Result<()>
             println!("Waiting to upload: {}", sessions_label(pending_sessions()?));
         }
         None => {
-            require_auth()?;
+            let auth = require_auth()?;
             if sync_paused() {
                 bail!("Sync is paused. Run `pn sync resume` first.");
             }
+            // Say what's covered up front: otherwise an up-to-date sync prints nothing at all.
+            let covered = local_sessions(all)?.len();
+            println!("Syncing as @{} to {}", auth.login, auth.api);
+            println!(
+                "  {} recorded with `pn` / `pn codex` {}.",
+                sessions_label(covered),
+                if all { "on this machine" } else { "since you logged in (add --all for older ones)" }
+            );
+            // Each session prints its own lines (sync_session); between them one
+            // in-place status line shows the watcher is alive.
+            let tty = std::io::IsTerminal::is_terminal(&std::io::stdout());
+            let (mut first, mut checks, mut watching) = (true, 0u64, covered);
             loop {
-                let n = sync_once(true, all).await?;
+                checks += 1;
+                match sync_once(true, all).await {
+                    Ok((n, seen)) => {
+                        watching = seen;
+                        if n == 0 && (first || once) {
+                            say("✓ Everything is up to date.");
+                        }
+                    }
+                    Err(e) if once => return Err(e),
+                    Err(e) => say(&format!("! {e:#}. Retrying in {}s.", LIVE_EVERY.as_secs())),
+                }
                 if once {
-                    println!("✓ Up to date{}.", if n > 0 { format!(" ({} uploaded)", human(n)) } else { String::new() });
                     return Ok(());
+                }
+                if first {
+                    say("Watching for new messages. Ctrl-C to stop.");
+                    first = false;
+                }
+                if tty {
+                    use std::io::Write;
+                    print!("\r\x1b[K· watching {} · checked {checks} times, every {}s", sessions_label(watching), LIVE_EVERY.as_secs());
+                    let _ = std::io::stdout().flush();
                 }
                 tokio::select! {
                     _ = tokio::signal::ctrl_c() => return Ok(()),
