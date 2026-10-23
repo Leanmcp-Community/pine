@@ -24,6 +24,11 @@ fn log_path() -> Result<PathBuf> {
     Ok(crate::paths::root()?.join("watch.log"))
 }
 
+/// Written by `pn watch --uninstall`: the installer then leaves it off.
+fn off_marker() -> Result<PathBuf> {
+    Ok(crate::paths::root()?.join("watch-off"))
+}
+
 fn plist_path() -> Result<PathBuf> {
     Ok(home()?.join(format!("Library/LaunchAgents/{LABEL}.plist")))
 }
@@ -44,7 +49,13 @@ fn xml(s: &str) -> String {
     s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
 }
 
-pub fn install() -> Result<()> {
+/// `default`: the installer's call. It respects an earlier `pn watch --uninstall`.
+pub fn install(default: bool) -> Result<()> {
+    if default && off_marker()?.exists() {
+        println!(">>> Background sync is off (you turned it off). Turn it on any time: pn watch --install");
+        return Ok(());
+    }
+    let _ = std::fs::remove_file(off_marker()?);
     let exe = std::env::current_exe()?.canonicalize()?;
     let log = log_path()?;
     std::fs::create_dir_all(log.parent().unwrap())?;
@@ -115,6 +126,9 @@ pub fn uninstall() -> Result<()> {
         run(Command::new("systemctl").args(["--user", "disable", "--now", "pine-watch.service"]));
         let _ = std::fs::remove_file(unit_path()?);
     }
+    let off = off_marker()?;
+    std::fs::create_dir_all(off.parent().unwrap())?;
+    std::fs::write(off, b"")?;
     println!("✓ Background sync stopped. `pn sync` still works by hand.");
     Ok(())
 }

@@ -24,11 +24,12 @@ link_short_alias() {
 
 main() {
     local repo="Leanmcp-Community/pine"
-    local version="latest" source_only=false
+    local version="latest" source_only=false watch=true
     local prefix="${PINE_INSTALL_DIR:-$HOME/.local/bin}"
     while [ "$#" -gt 0 ]; do
         case "$1" in
             --source) source_only=true; shift ;;
+            --no-watch) watch=false; shift ;;
             --version|--prefix)
                 if [ "$#" -lt 2 ] || [ -z "$2" ]; then
                     echo "error: $1 requires a value" >&2; return 1
@@ -39,8 +40,9 @@ main() {
                 esac
                 shift 2 ;;
             --help|-h)
-                echo "Usage: bash install.sh [--version TAG] [--prefix DIR] [--source]"
+                echo "Usage: bash install.sh [--version TAG] [--prefix DIR] [--source] [--no-watch]"
                 echo "Installs to ~/.local/bin by default. --source builds with Cargo."
+                echo "Also turns on background sync (pn watch, runs as you, no sudo); --no-watch skips it."
                 echo "Re-run with no arguments any time to update to the latest release."
                 return ;;
             *) echo "error: unknown option: $1" >&2; return 1 ;;
@@ -150,6 +152,14 @@ main() {
     echo ">>> Installed: $prefix/pine"
     link_short_alias "$prefix"
     "$prefix/pine" --version
+    # Background sync (pn watch): a per-user login job (launchd / systemd --user),
+    # no sudo. Skipped on CI. Respects an earlier `pn watch --uninstall`.
+    if [ "$watch" = true ] && [ -z "${CI:-}" ]; then
+        "$prefix/pine" watch --install --default ||
+            echo ">>> Background sync didn't start. Turn it on later: pn watch --install" >&2
+    elif [ "$watch" = false ]; then
+        echo ">>> Skipped background sync. Turn it on any time: pn watch --install"
+    fi
     case ":$PATH:" in
         *":$prefix:"*) ;;
         *) printf 'Add this to your shell profile, then restart your shell:\n  export PATH=%q:"$PATH"\n' "$prefix" ;;

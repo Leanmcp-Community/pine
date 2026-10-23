@@ -27,6 +27,7 @@ curl -fsSL https://usepine.dev/install | bash
 - **What it downloads:** the release binary for your OS/arch (Linux x86_64/ARM64 with glibc 2.35+, or macOS Intel/Apple Silicon). It verifies the binary's SHA-256 checksum.
 - **No binary for your platform:** it builds from source with Cargo instead.
 - **`pn` already taken:** if another `pn` command already exists on your machine, only `pine` is installed.
+- **Background sync:** it also turns on `pn watch` (a login job that runs as you, no sudo), which shares sessions from the Claude and Codex desktop apps and plain `claude` / `codex` too. Skip it with `--no-watch`; turn it off later with `pn watch --uninstall`, and updates leave it off.
 
 Other options:
 

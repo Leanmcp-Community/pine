@@ -205,6 +205,9 @@ enum Cmd {
         /// Stop it and remove it from login.
         #[arg(long, default_value_t = false)]
         uninstall: bool,
+        /// Used by the installer: install unless you turned it off before.
+        #[arg(long = "default", hide = true, default_value_t = false)]
+        by_default: bool,
     },
     /// Continue a conversation in the other agent: `pn handoff claude` picks a
     /// Codex session in this folder and adds it to Claude Code (`claude --resume`).
@@ -364,8 +367,8 @@ fn main() -> Result<()> {
         Some(Cmd::Pull { target, into }) => runtime()?.block_on(team::pull(target, into)),
         Some(Cmd::Open { id }) => team::open(id),
         Some(Cmd::Handoff { to, session, all }) => handoff::run(&to, session, all),
-        Some(Cmd::Watch { action, install, uninstall }) => match (action.as_deref(), install, uninstall) {
-            (_, true, _) => watch::install(),
+        Some(Cmd::Watch { action, install, uninstall, by_default }) => match (action.as_deref(), install, uninstall) {
+            (_, true, _) => watch::install(by_default),
             (_, _, true) => watch::uninstall(),
             (Some("status"), _, _) => watch::status(),
             (None, _, _) => runtime()?.block_on(team::watch_loop()),
