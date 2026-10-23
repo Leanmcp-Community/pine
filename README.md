@@ -63,7 +63,7 @@ Only sessions started after `pn login` are shared. To share older ones on purpos
 | `pn watch --install` | Run that sync in the background: starts now and at every login (launchd on macOS, systemd on Linux), no terminal needed. `pn watch status` shows if it's running and its last log lines; `pn watch --uninstall` stops it. Log: `~/.pine/watch.log`. |
 | `pn checkpoint "name" [-m note] [--session id]` | Name the current conversation at this moment. |
 | `pn checkpoints` | Your team's checkpoints. |
-| `pn pull <checkpoint-name \| session-id> [--into claude\|codex]` | Download a teammate's checkpoint or session and set it up to continue in this folder: a resumable Claude Code session (`pn -- --resume <id>`), or for Codex a `conversation.md` to start from. Run it inside your clone of the repo. |
+| `pn pull <checkpoint-name \| session-id> [--into claude\|codex]` | Continue any session you can see, in Claude Code or Codex: downloads the conversation and adds it as a native session (`claude --resume` / `codex resume` / the Codex app) in your clone of its repo, found automatically. Offers to open it right away. |
 | `pn handoff claude` / `pn handoff codex` `[n \| id] [--all]` | Continue a session in the other agent, on this machine. `claude`: pick a Codex session (CLI or desktop app) in this folder and add it to `claude --resume`. `codex`: pick a Claude Code session and add it to `codex resume` and the Codex app. Nothing is uploaded. |
 | `pn open [id]` | Open a session (default: the latest) on app.usepine.dev. |
 | `pn -i` | Interactive menu: login, sync, checkpoints, sessions. |

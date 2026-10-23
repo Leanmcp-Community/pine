@@ -3,8 +3,8 @@
 //! - Claude Code: write the transcript as a native session file under
 //!   `~/.claude/projects/<cwd>/<uuid>.jsonl`, so `pn -- --resume <uuid>` (or
 //!   `claude --resume <uuid>`) picks it up in this folder.
-//! - Codex: its session format isn't stable enough to fake, so write the
-//!   conversation as Markdown and start a fresh Codex session that reads it.
+//! - Codex: a native thread via src/into_codex.rs (copied from a real one on
+//!   this machine), so `codex resume <id>` and the Codex app pick it up.
 //!
 //! Tool calls survive only as one-line text summaries (that's all a transcript
 //! keeps), so the agent sees what was done, not the full tool output.
@@ -32,7 +32,7 @@ pub type Turn = (&'static str, String, String);
 
 /// Alternating (role, text) turns from a Pine transcript. Context notes are
 /// dropped; tool calls fold into the assistant turn that made them.
-fn turns(t: &Value, label: &str) -> Vec<Turn> {
+pub(crate) fn turns(t: &Value, label: &str) -> Vec<Turn> {
     let mut items: Vec<Turn> = Vec::new();
     for m in t["messages"].as_array().into_iter().flatten() {
         let (role, text) = match s(m, "kind") {
@@ -135,22 +135,6 @@ pub fn write_claude(turns: Vec<Turn>, title: &str, model: &str, branch: &str, cw
     let body: String = lines.iter().map(|l| format!("{l}\n")).collect();
     std::fs::write(dir.join(format!("{sid}.jsonl")), body)?;
     Ok(sid)
-}
-
-/// The conversation as Markdown, for agents we can't resume natively.
-pub fn markdown(t: &Value, label: &str, out: &Path) -> Result<()> {
-    let mut md = format!("# Conversation pulled from Pine: {label}\n\n");
-    for (i, (role, text, _)) in turns(t, label).into_iter().enumerate() {
-        // The heading already says where it came from; drop the resume note.
-        let text = match (i, text.split_once("\n\n")) {
-            (0, Some((note, rest))) if note.starts_with("[Conversation pulled") => rest.to_string(),
-            (0, None) if text.starts_with("[Conversation pulled") => continue,
-            _ => text,
-        };
-        md += &format!("## {}\n\n{}\n\n", if role == "user" { "User" } else { "Agent" }, text);
-    }
-    std::fs::write(out, md)?;
-    Ok(())
 }
 
 #[cfg(test)]

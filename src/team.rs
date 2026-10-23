@@ -791,6 +791,9 @@ pub async fn pull(target: String, into: Option<String>) -> Result<()> {
         let sid = r["checkpoint"]["sessionId"].as_str().ok_or_else(|| anyhow!("bad checkpoint response"))?.to_string();
         (sid, serde_json::from_value(r["offsets"].clone()).unwrap_or_default(), format!("checkpoint \"{target}\""))
     };
+    // Its repo, to continue in your clone of it.
+    let repo = api_json(c.get(format!("{api}/api/v1/sessions/{id}")).bearer_auth(&auth.token)).await.ok().and_then(|r| r["session"]["repo"].as_str().map(String::from));
+    let cwd = clone_for(repo.as_deref())?;
 
     let dest = crate::paths::session_dir(&id)?;
     if dest.is_dir() && !dest.join(".pulled").exists() {
@@ -802,7 +805,7 @@ pub async fn pull(target: String, into: Option<String>) -> Result<()> {
             return Ok(());
         };
         let t = crate::transcript::build(&dest).ok_or_else(|| anyhow!("no conversation in {id}"))?;
-        return continue_in(&serde_json::to_value(t)?, &agent, &label, &dest);
+        return continue_in(&serde_json::to_value(t)?, &agent, &label, &cwd);
     }
     for (file, upto) in &files {
         // Transcript sessions: one JSON file, cut to the first `upto` messages for a checkpoint.
@@ -835,25 +838,64 @@ pub async fn pull(target: String, into: Option<String>) -> Result<()> {
     };
     let t: Value = serde_json::from_slice(&raw)?;
     let agent = into.unwrap_or_else(|| t["agent"].as_str().unwrap_or("claude").to_string());
-    continue_in(&t, &agent, &label, &dest)
+    continue_in(&t, &agent, &label, &cwd)
 }
 
-/// Hand a pulled transcript to an agent in the current folder and say how to resume.
-fn continue_in(t: &Value, agent: &str, label: &str, dest: &Path) -> Result<()> {
-    let cwd = std::env::current_dir()?;
-    match agent {
+/// Where to continue a session from `repo`: this folder if it's a clone of
+/// it, else the clone Claude Code last used for it (`githubRepoPaths` in
+/// ~/.claude.json), else this folder.
+fn clone_for(repo: Option<&str>) -> Result<PathBuf> {
+    let here = std::env::current_dir()?;
+    let Some(repo) = repo else { return Ok(here) };
+    let same = |p: &Path| {
+        git(&p.to_string_lossy(), &["remote", "get-url", "origin"]).and_then(|r| github_repo(&r)).is_some_and(|r| r.eq_ignore_ascii_case(repo))
+    };
+    if same(&here) {
+        return Ok(here);
+    }
+    let known: Value = dirs::home_dir()
+        .and_then(|h| std::fs::read(h.join(".claude.json")).ok())
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or(Value::Null);
+    let paths = known["githubRepoPaths"].as_object().and_then(|m| m.iter().find(|(k, _)| k.eq_ignore_ascii_case(repo)).map(|(_, v)| v.clone()));
+    if let Some(p) = paths.and_then(|v| v.as_array().cloned()).into_iter().flatten().filter_map(|v| v.as_str().map(PathBuf::from)).find(|p| p.is_dir()) {
+        println!("Using your clone of {repo}: {}", p.display());
+        return Ok(p);
+    }
+    println!("Note: this folder isn't a clone of {repo}. Continuing here; cd into your clone and pull again to switch.");
+    Ok(here)
+}
+
+/// Ask once, in a terminal only.
+fn yes(prompt: &str) -> bool {
+    use std::io::IsTerminal;
+    std::io::stdin().is_terminal() && ask(prompt).is_some_and(|a| a.is_empty() || a.eq_ignore_ascii_case("y"))
+}
+
+/// Hand a pulled transcript to an agent in `cwd` as a native session, and offer to open it.
+fn continue_in(t: &Value, agent: &str, label: &str, cwd: &Path) -> Result<()> {
+    let cd = if std::env::current_dir().is_ok_and(|h| h == cwd) { String::new() } else { format!("cd {} && ", cwd.display()) };
+    let args: Vec<String> = match agent {
         "claude" => {
-            let sid = crate::resume::into_claude(t, label, &cwd)?;
+            let sid = crate::resume::into_claude(t, label, cwd)?;
             println!("✓ Added to Claude Code for {}", cwd.display());
-            println!("  Continue it:  pn -- --resume {sid}     (or: claude --resume {sid})");
+            println!("  Continue it:  {cd}pn -- --resume {sid}     (or: {cd}claude --resume {sid})");
+            vec!["--".into(), "--resume".into(), sid]
         }
         "codex" => {
-            let md = dest.join("conversation.md");
-            crate::resume::markdown(t, label, &md)?;
-            println!("✓ Wrote {}", md.display());
-            println!("  Continue it:  pn codex -- \"Read {} and continue that conversation from where it left off.\"", md.display());
+            let title = format!("From Pine: {label}");
+            let id = crate::into_codex::write_codex(crate::resume::turns(t, label), &title, cwd)?;
+            println!("✓ Added to Codex for {}", cwd.display());
+            println!("  Continue it:  {cd}pn codex -- resume {id}     (or: {cd}codex resume {id})");
+            println!("  Codex app:    open codex://threads/{id}");
+            vec!["codex".into(), "--".into(), "resume".into(), id]
         }
         other => bail!("--into takes claude or codex, not {other}"),
+    };
+    if yes("Open it now? [Y/n] ") {
+        // Through pn, so the continued conversation is recorded too.
+        let status = std::process::Command::new(std::env::current_exe()?).args(&args).current_dir(cwd).status()?;
+        std::process::exit(status.code().unwrap_or(0));
     }
     Ok(())
 }
