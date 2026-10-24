@@ -25,6 +25,8 @@ const DEFAULT_API: &str = "https://app.usepine.dev";
 const GITHUB_CLIENT_ID: &str = "Iv23liqQWqjQv0ivKzAi";
 const MAX_TRANSCRIPT: usize = 3_800_000; // stays under Vercel's 4.5 MB body limit
 const LIVE_EVERY: Duration = Duration::from_secs(2);
+/// How often the background job (`pn watch`) checks for a new release.
+const UPDATE_EVERY: Duration = Duration::from_secs(10 * 60);
 
 #[derive(Debug, Subcommand)]
 pub enum SyncCmd {
@@ -445,7 +447,19 @@ fn say(msg: &str) {
 pub async fn watch_loop() -> Result<()> {
     say(&format!("Pine watch started ({}).", crate::PINE_VERSION));
     let (mut waiting, mut last_err) = (String::new(), String::new());
+    let mut next_update = std::time::Instant::now() + Duration::from_secs(60); // first check a minute after start
     loop {
+        if std::time::Instant::now() >= next_update {
+            next_update = std::time::Instant::now() + UPDATE_EVERY;
+            match crate::update::auto().await {
+                Ok(Some(v)) => {
+                    say(&format!("Updated to {v}. Restarting on the new version."));
+                    std::process::exit(0); // launchd / systemd start it again
+                }
+                Ok(None) => {}
+                Err(e) => say(&format!("! update check failed: {e:#}")),
+            }
+        }
         let why = if load_auth().is_none() {
             "not logged in (run `pn login`)"
         } else if sync_paused() {

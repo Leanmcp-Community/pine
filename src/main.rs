@@ -322,7 +322,12 @@ enum Cmd {
     InstallTelemetry,
     /// Download and install the latest release for this platform, replacing
     /// the running binary in place. No-op if already on the latest commit.
-    Update,
+    /// The background job (pn watch) also does this by itself every 10 minutes.
+    Update {
+        /// `on` / `off`: whether the background job updates pn by itself.
+        #[arg(long, value_name = "on|off")]
+        auto: Option<String>,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -436,7 +441,12 @@ fn main() -> Result<()> {
                 .context("building tokio runtime")?;
             rt.block_on(run_install_telemetry())
         }
-        Some(Cmd::Update) => {
+        Some(Cmd::Update { auto: Some(a) }) => match a.as_str() {
+            "on" => update::set_auto(true),
+            "off" => update::set_auto(false),
+            other => anyhow::bail!("--auto takes on or off, not {other}"),
+        },
+        Some(Cmd::Update { auto: None }) => {
             let rt = tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
                 .build()

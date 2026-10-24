@@ -68,7 +68,7 @@ Only sessions started after `pn login` are shared. To share older ones on purpos
 | `pn open [id]` | Open a session (default: the latest) on app.usepine.dev. |
 | `pn -i` | Interactive menu: login, sync, checkpoints, sessions. |
 | `pn ca trust` / `pn ca untrust` | Add or remove Pine's root CA in the macOS login keychain. |
-| `pn update` | Replace this binary with the latest release. |
+| `pn update` | Replace this binary with the latest release. The background job (`pn watch`) also checks every 10 minutes and installs new releases by itself; `pn update --auto off` turns that off, `--auto on` back on. |
 
 ## Teams and access
 

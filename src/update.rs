@@ -39,7 +39,64 @@ fn reject_managed_install(exe: &std::path::Path) -> Result<()> {
     Ok(())
 }
 
+/// `pine update`: replace this binary with the latest release, now.
 pub async fn run() -> Result<()> {
+    if apply(false).await?.is_some() {
+        crate::watch::restart_if_installed(); // the background sync picks up the new binary
+    }
+    Ok(())
+}
+
+/// Written by `pn update --auto off`: the background job stops updating itself.
+fn auto_off_marker() -> Result<std::path::PathBuf> {
+    Ok(crate::paths::root()?.join("auto-update-off"))
+}
+
+/// `pn update --auto on|off`.
+pub fn set_auto(on: bool) -> Result<()> {
+    let m = auto_off_marker()?;
+    if on {
+        let _ = std::fs::remove_file(&m);
+        println!("Auto-update is on: the background job checks every 10 minutes and installs new releases.");
+    } else {
+        std::fs::create_dir_all(m.parent().unwrap())?;
+        std::fs::write(&m, b"")?;
+        println!("Auto-update is off. Update by hand with `pn update`; turn it back on with `pn update --auto on`.");
+    }
+    Ok(())
+}
+
+/// The commit in the running version: "0.2.0 (2d6ef8ea3575)" → "2d6ef8ea3575".
+fn running_commit() -> &'static str {
+    PINE_VERSION.split_once('(').map(|(_, r)| r.trim_end_matches(')')).unwrap_or("")
+}
+
+/// The newest release's commit, from the tag GitHub's "latest" page redirects
+/// to (`…/releases/tag/edge-16-2d6ef8ea3575`). One small request, no download.
+async fn latest_commit() -> Result<String> {
+    let client = reqwest::Client::builder().redirect(reqwest::redirect::Policy::none()).build()?;
+    let res = client.head(format!("https://github.com/{REPO}/releases/latest")).send().await?;
+    let loc = res.headers().get("location").and_then(|v| v.to_str().ok()).context("no latest release")?;
+    loc.rsplit('-').next().map(str::to_string).context("odd release tag")
+}
+
+/// The background job's check (`pn watch`, every 10 minutes). Some(version)
+/// when the binary was replaced; the job then exits and launchd / systemd
+/// starts it again on the new binary. Dev builds never update themselves.
+pub async fn auto() -> Result<Option<String>> {
+    let current = running_commit();
+    if auto_off_marker()?.exists() || current.is_empty() || current.contains("dirty") || current == "unknown" {
+        return Ok(None);
+    }
+    if latest_commit().await? == current {
+        return Ok(None);
+    }
+    apply(true).await
+}
+
+/// Download, verify (SHA-256, runs `--version`) and swap in the latest
+/// release. Some(new version) if it replaced the binary.
+async fn apply(quiet: bool) -> Result<Option<String>> {
     let target = target_triple()?;
     let exe = std::env::current_exe().context("resolving the running executable's path")?;
     let exe = exe.canonicalize().unwrap_or(exe);
@@ -54,7 +111,9 @@ pub async fn run() -> Result<()> {
         .redirect(reqwest::redirect::Policy::limited(10))
         .build()?;
 
-    println!(">>> Checking latest release for {target}");
+    if !quiet {
+        println!(">>> Checking latest release for {target}");
+    }
     let archive = client
         .get(format!("{base}/{asset}"))
         .send()
@@ -121,16 +180,19 @@ pub async fn run() -> Result<()> {
 
     if new_version == current_version {
         drop(cleanup);
-        println!(">>> Already up to date: {current_version}");
-        return Ok(());
+        if !quiet {
+            println!(">>> Already up to date: {current_version}");
+        }
+        return Ok(None);
     }
 
     std::fs::rename(&new_bin, &exe)
         .with_context(|| format!("replacing {} (need write access to {})", exe.display(), exe_dir.display()))?;
     drop(cleanup);
-    println!(">>> Updated: {current_version} -> {new_version}");
-    crate::watch::restart_if_installed(); // the background sync picks up the new binary
-    Ok(())
+    if !quiet {
+        println!(">>> Updated: {current_version} -> {new_version}");
+    }
+    Ok(Some(new_version))
 }
 
 /// Best-effort cleanup of the extraction dir, even on early `?` returns.
