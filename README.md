@@ -100,6 +100,7 @@ What gets redacted and how it's stored:
 - **Sharing:** logged-in sessions are visible to everyone who can read the repo. They include prompts, code and tool output. Structured credentials are filtered, but free text can still contain secrets.
 - **Pausing uploads:** run `pn sync pause` to stop uploading.
 - **Account files:** `~/.pine/auth.json` (mode 600) holds this device's Pine token. You can sign a device out from the **Devices** page.
+- **Usage events:** pn tells us which command ran (`pull`, `handoff`, `watch`…), its version and OS, through PostHog. Never arguments, paths, prompts or code. Logged in, you're identified by your GitHub login. Turn it off with `pn telemetry off`, `PINE_TELEMETRY=0` or `DO_NOT_TRACK=1`.
 
 ## Self-hosted uploads
 

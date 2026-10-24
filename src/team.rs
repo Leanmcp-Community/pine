@@ -454,6 +454,7 @@ pub async fn watch_loop() -> Result<()> {
             match crate::update::auto().await {
                 Ok(Some(v)) => {
                     say(&format!("Updated to {v}. Restarting on the new version."));
+                    crate::telemetry::send("cli_auto_updated", json!({ "to": v })).wait();
                     std::process::exit(0); // launchd / systemd start it again
                 }
                 Ok(None) => {}

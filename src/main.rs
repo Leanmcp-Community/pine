@@ -23,6 +23,7 @@ mod paths;
 mod proxy;
 mod sse;
 mod team;
+mod telemetry;
 mod transcript;
 mod resume;
 mod update;
@@ -320,6 +321,12 @@ enum Cmd {
     },
     #[command(hide = true)]
     InstallTelemetry,
+    /// Usage events: `pn telemetry` shows the setting, `on` / `off` changes it.
+    /// They say which command ran, never its arguments, paths or code.
+    Telemetry {
+        /// on or off.
+        state: Option<String>,
+    },
     /// Download and install the latest release for this platform, replacing
     /// the running binary in place. No-op if already on the latest commit.
     /// The background job (pn watch) also does this by itself every 10 minutes.
@@ -357,7 +364,55 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
     init_tracing();
     install_default_crypto_provider()?;
+    let (event, props) = usage_event(&cli);
+    let pending = telemetry::send(event, props);
+    let result = run(cli);
+    pending.wait();
+    result
+}
 
+/// What `main` reports to PostHog: the command and a few safe flags, never
+/// arguments, paths or text (see src/telemetry.rs).
+fn usage_event(cli: &Cli) -> (&'static str, serde_json::Value) {
+    use serde_json::json;
+    if cli.interactive {
+        return ("cli_command", json!({ "command": "menu" }));
+    }
+    let (command, extra) = match &cli.command {
+        None => ("claude", json!({})),
+        Some(Cmd::InstallTelemetry) => return ("cli_installed", json!({})),
+        Some(Cmd::Login) => ("login", json!({})),
+        Some(Cmd::Logout) => ("logout", json!({})),
+        Some(Cmd::Whoami) => ("whoami", json!({})),
+        Some(Cmd::Sync { sub, once, all }) => ("sync", json!({ "sub": sub.as_ref().map(|s| format!("{s:?}").to_lowercase()), "once": once, "all": all })),
+        Some(Cmd::Checkpoint { note, session, .. }) => ("checkpoint", json!({ "with_note": note.is_some(), "with_session": session.is_some() })),
+        Some(Cmd::Checkpoints) => ("checkpoints", json!({})),
+        Some(Cmd::Pull { into, .. }) => ("pull", json!({ "into": into })),
+        Some(Cmd::Open { .. }) => ("open", json!({})),
+        Some(Cmd::Handoff { to, all, session }) => ("handoff", json!({ "to": to, "all": all, "picked": session.is_some() })),
+        Some(Cmd::Watch { action, install, uninstall, by_default }) => (
+            "watch",
+            json!({ "action": if *install { "install" } else if *uninstall { "uninstall" } else { action.as_deref().unwrap_or("run") }, "by_installer": by_default }),
+        ),
+        Some(Cmd::Update { auto }) => ("update", json!({ "auto": auto })),
+        Some(Cmd::Telemetry { state }) => ("telemetry", json!({ "state": state })),
+        Some(Cmd::Codex { .. }) => ("codex", json!({})),
+        Some(Cmd::Antigravity { gui, .. }) => ("antigravity", json!({ "gui": gui })),
+        Some(Cmd::Windsurf { .. }) => ("windsurf", json!({})),
+        Some(Cmd::Proxy) => ("proxy", json!({})),
+        Some(Cmd::Cloud { .. }) => ("cloud", json!({})),
+        Some(Cmd::Ca { .. }) => ("ca", json!({})),
+        Some(Cmd::Where) => ("where", json!({})),
+        Some(Cmd::Transcript { .. }) => ("transcript", json!({})),
+    };
+    let mut props = json!({ "command": command });
+    if let (Some(p), serde_json::Value::Object(e)) = (props.as_object_mut(), extra) {
+        p.extend(e);
+    }
+    ("cli_command", props)
+}
+
+fn run(cli: Cli) -> Result<()> {
     if cli.interactive {
         return runtime()?.block_on(team::interactive());
     }
@@ -434,13 +489,8 @@ fn main() -> Result<()> {
                 .context("building tokio runtime")?;
             rt.block_on(team::with_live_sync(run_proxy_only(cli)))
         }
-        Some(Cmd::InstallTelemetry) => {
-            let rt = tokio::runtime::Builder::new_multi_thread()
-                .enable_all()
-                .build()
-                .context("building tokio runtime")?;
-            rt.block_on(run_install_telemetry())
-        }
+        Some(Cmd::InstallTelemetry) => Ok(()), // the event is sent by main like any command
+        Some(Cmd::Telemetry { state }) => telemetry::set(state.as_deref()),
         Some(Cmd::Update { auto: Some(a) }) => match a.as_str() {
             "on" => update::set_auto(true),
             "off" => update::set_auto(false),
@@ -463,38 +513,6 @@ fn main() -> Result<()> {
     }
 }
 
-async fn run_install_telemetry() -> Result<()> {
-    let posthog_key = env!("POSTHOG_API_KEY");
-    if posthog_key.is_empty() {
-        return Ok(());
-    }
-
-    let event_name = format!("{}_install", env!("CARGO_PKG_NAME"));
-    let distinct_id = std::env::var("USER")
-        .ok()
-        .or_else(|| std::env::var("USERNAME").ok())
-        .unwrap_or_else(|| "unknown".to_string());
-
-    let client = reqwest::Client::new();
-    let payload = serde_json::json!({
-        "api_key": posthog_key,
-        "event": event_name,
-        "properties": {
-            "distinct_id": distinct_id,
-            "os": std::env::consts::OS,
-            "arch": std::env::consts::ARCH,
-            "version": env!("CARGO_PKG_VERSION")
-        }
-    });
-
-    // Fire and forget
-    let _ = client.post("https://us.i.posthog.com/capture/")
-        .json(&payload)
-        .send()
-        .await;
-
-    Ok(())
-}
 
 fn init_tracing() {
     // Default to warnings only so the banner is the primary signal at
@@ -524,7 +542,6 @@ fn install_default_crypto_provider() -> Result<()> {
 async fn run_proxy_and_launch(cli: Cli) -> Result<()> {
     paths::ensure_dir(&paths::root()?)?;
     paths::ensure_dir(&paths::sessions_dir()?)?;
-    track_install_event();
 
     let ca = Arc::new(ca::Ca::load_or_generate()?);
 
@@ -654,7 +671,6 @@ async fn run_proxy_and_launch(cli: Cli) -> Result<()> {
 async fn run_proxy_only(cli: Cli) -> Result<()> {
     paths::ensure_dir(&paths::root()?)?;
     paths::ensure_dir(&paths::sessions_dir()?)?;
-    track_install_event();
 
     let ca = Arc::new(ca::Ca::load_or_generate()?);
 
@@ -788,7 +804,6 @@ async fn run_windsurf(cli: Cli) -> Result<()> {
         };
     paths::ensure_dir(&paths::root()?)?;
     paths::ensure_dir(&paths::sessions_dir()?)?;
-    track_install_event();
 
     let ca = Arc::new(ca::Ca::load_or_generate()?);
 
@@ -997,7 +1012,6 @@ async fn run_antigravity(cli: Cli) -> Result<()> {
     };
     paths::ensure_dir(&paths::root()?)?;
     paths::ensure_dir(&paths::sessions_dir()?)?;
-    track_install_event();
 
     let ca = Arc::new(ca::Ca::load_or_generate()?);
 
@@ -1157,7 +1171,6 @@ async fn run_antigravity_gui(cli: Cli) -> Result<()> {
     };
     paths::ensure_dir(&paths::root()?)?;
     paths::ensure_dir(&paths::sessions_dir()?)?;
-    track_install_event();
 
     let ca = Arc::new(ca::Ca::load_or_generate()?);
 
@@ -1357,7 +1370,6 @@ async fn run_codex(cli: Cli) -> Result<()> {
     };
     paths::ensure_dir(&paths::root()?)?;
     paths::ensure_dir(&paths::sessions_dir()?)?;
-    track_install_event();
 
     let ca = Arc::new(ca::Ca::load_or_generate()?);
 
@@ -1570,33 +1582,6 @@ fn uname_r() -> Option<String> {
     Some(String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
 
-fn track_install_event() {
-    let flag_path = paths::root().unwrap_or_else(|_| dirs::home_dir().unwrap().join(".pine")).join(".installed");
-    if flag_path.exists() {
-        return;
-    }
-    
-    tokio::spawn(async move {
-        let api_key = env!("POSTHOG_API_KEY");
-        let event_name = format!("{}_install", env!("CARGO_PKG_NAME"));
-        
-        let client = reqwest::Client::new();
-        let _ = client.post("https://api.agentruntime.app/capture/")
-            .json(&serde_json::json!({
-                "api_key": api_key,
-                "event": event_name,
-                "distinct_id": "anonymous_user",
-                "properties": {
-                    "os": std::env::consts::OS,
-                    "arch": std::env::consts::ARCH,
-                }
-            }))
-            .send()
-            .await;
-            
-        let _ = std::fs::File::create(flag_path);
-    });
-}
 
 
 
