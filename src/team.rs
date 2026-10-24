@@ -321,7 +321,21 @@ fn local_sessions_since(since_ms: u64) -> Result<Vec<(String, PathBuf)>> {
 
 /// The sessions sync covers: since login, or everything with `--all`.
 fn local_sessions(all: bool) -> Result<Vec<(String, PathBuf)>> {
-    local_sessions_since(if all { 0 } else { load_auth().map(|a| a.since_ms).unwrap_or(u64::MAX) })
+    if all {
+        return local_sessions_since(0);
+    }
+    let since = load_auth().map(|a| a.since_ms).unwrap_or(u64::MAX);
+    let shared = load_state();
+    Ok(local_sessions_since(0)?
+        .into_iter()
+        .filter(|(id, _)| id.parse::<ulid::Ulid>().is_ok_and(|u| u.timestamp_ms() >= since) || already_shared(&shared, id))
+        .collect())
+}
+
+/// Shared before (e.g. with `pn sync --all`): it keeps syncing as it grows,
+/// even though it started before `pn login`.
+fn already_shared(state: &SyncState, id: &str) -> bool {
+    state.sessions.get(id).is_some_and(|s| s.registered && !s.deleted && !s.skip)
 }
 
 /// Every uploadable file under a session dir. meta.json is rewritten in place
@@ -610,10 +624,12 @@ async fn sync_session(
     Ok(body.len() as u64)
 }
 
-/// Claude Code / Codex sessions sync covers: since login, or all with `--all`.
+/// Claude Code / Codex sessions sync covers: started since login or already
+/// shared, or all with `--all`.
 fn native_sessions(all: bool) -> Vec<crate::native::Native> {
     let since = if all { 0 } else { load_auth().map(|a| a.since_ms).unwrap_or(u64::MAX) };
-    crate::native::discover().into_iter().filter(|n| n.created_ms >= since).collect()
+    let shared = load_state();
+    crate::native::discover().into_iter().filter(|n| n.created_ms >= since || already_shared(&shared, &n.id)).collect()
 }
 
 /// One pass over every local session: pn's recordings, then Claude Code's
