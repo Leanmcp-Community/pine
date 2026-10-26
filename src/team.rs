@@ -260,6 +260,9 @@ struct SyncState {
     /// Set once the native-first rule has re-checked sessions skipped under the old rule.
     #[serde(default)]
     native_first: bool,
+    /// Set once every session was re-sent with its agent title (Claude ai-title, Codex thread name).
+    #[serde(default)]
+    titles_sent: bool,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -528,6 +531,16 @@ enum Source<'a> {
     Native(&'a crate::native::Native),
 }
 
+/// The transcript as uploaded, with the agent's own title (Claude Code's ai-title,
+/// Codex's thread name) when it has one: Pine shows that title as is.
+fn upload_body(t: &crate::transcript::Transcript, title: Option<&str>) -> Result<Vec<u8>> {
+    let mut v = serde_json::to_value(t)?;
+    if let Some(title) = title.map(str::trim).filter(|s| !s.is_empty()) {
+        v["title"] = Value::from(title);
+    }
+    Ok(serde_json::to_vec(&v)?)
+}
+
 /// Upload one session's conversation if anything changed. Builds a compact
 /// transcript locally (src/transcript.rs, src/native.rs) and replaces it on
 /// Pine; raw files never leave this machine. Returns bytes uploaded.
@@ -617,11 +630,11 @@ async fn sync_session(
         return Ok(0);
     };
     // Stay under Vercel's 4.5 MB body limit: drop the oldest messages if a session is enormous.
-    let mut body = serde_json::to_vec(&t)?;
+    let mut body = upload_body(&t, meta.title.as_deref())?;
     while body.len() > MAX_TRANSCRIPT && t.messages.len() > 1 {
         let drop = (t.messages.len() / 10).max(1);
         t.messages.drain(..drop);
-        body = serde_json::to_vec(&t)?;
+        body = upload_body(&t, meta.title.as_deref())?;
     }
     let res = c
         .put(format!("{}/api/v1/sessions/{id}/transcript", api_base(Some(auth))))
@@ -678,6 +691,11 @@ async fn sync_once(verbose: bool, all: bool) -> Result<(u64, usize)> {
     if !state.native_first {
         state.sessions.values_mut().for_each(|s| s.skip = false);
         state.native_first = true;
+    }
+    // Once: re-send everything so Pine gets each session's own title.
+    if !state.titles_sent {
+        state.sessions.values_mut().for_each(|s| s.sig = 0);
+        state.titles_sent = true;
     }
     let checked = sessions.len() + natives.len();
     let sources = sessions
