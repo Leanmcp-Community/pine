@@ -257,6 +257,9 @@ pub async fn whoami() -> Result<()> {
 #[derive(Debug, Default, Serialize, Deserialize)]
 struct SyncState {
     sessions: BTreeMap<String, SessionSync>,
+    /// Set once the native-first rule has re-checked sessions skipped under the old rule.
+    #[serde(default)]
+    native_first: bool,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -270,8 +273,8 @@ struct SessionSync {
     /// Deleted on the web (the server answered 410): never upload it again.
     #[serde(default)]
     deleted: bool,
-    /// A native file we never upload: a Codex sub-agent thread, or a session
-    /// that ran through pn and is already synced from ~/.pine.
+    /// Never uploaded: a Codex sub-agent thread, or a pn run whose
+    /// conversation Claude Code / Codex also saved (that file is shared).
     #[serde(default)]
     skip: bool,
 }
@@ -415,6 +418,22 @@ fn github_repo(remote: &str) -> Option<String> {
     (!owner.is_empty() && !name.is_empty()).then(|| format!("{owner}/{name}"))
 }
 
+/// Remove a session this device uploaded earlier (a pn copy of a conversation
+/// now shared from Claude Code's or Codex's own file). Gone already is fine.
+async fn remove_remote(c: &reqwest::Client, auth: &Auth, id: &str) -> Result<()> {
+    let res = c
+        .delete(format!("{}/api/v1/sessions/{id}", api_base(Some(auth))))
+        .bearer_auth(&auth.token)
+        .send()
+        .await
+        .context("can't reach Pine (offline?)")?;
+    match res.status().as_u16() {
+        200 | 404 | 410 => Ok(()),
+        401 => bail!("This device was signed out of Pine. Run `pn login`."),
+        s => bail!("removing a duplicate session failed (HTTP {s})"),
+    }
+}
+
 /// Tell Pine about a session (repo, branch, commit). Returns Pine's note when
 /// the repo couldn't be verified and the session stays private.
 async fn register(c: &reqwest::Client, auth: &Auth, id: &str, meta: &crate::native::Meta, agent: &str) -> Result<Option<String>> {
@@ -516,7 +535,7 @@ async fn sync_session(
     c: &reqwest::Client,
     auth: &Auth,
     state: &mut SyncState,
-    recorded: &mut Option<crate::native::Recorded>,
+    natives: &crate::native::NativeIndex,
     id: &str,
     src: Source<'_>,
     verbose: bool,
@@ -527,6 +546,23 @@ async fn sync_session(
         Source::Native(n) => n.size,
     };
     let entry = state.sessions.entry(id.to_string()).or_default();
+    // One session per conversation: if Claude Code or Codex saved this pn run's
+    // conversation itself, that file is shared instead (sync picks it up as a
+    // native session). This copy stays on disk; an earlier upload is removed.
+    // Same for a run that only did Claude Code's start-up quota check (tiny,
+    // so the check is cheap): nothing to share.
+    if let Source::Pine(dir) = src {
+        if !entry.skip && !entry.deleted && (natives.has_native_copy(id, dir) || (sig < 256 * 1024 && crate::transcript::quota_only(dir))) {
+            if entry.registered {
+                remove_remote(c, auth, id).await?;
+                if verbose {
+                    say(&format!("· {}…: a duplicate or empty pn run, removed from Pine (still on this machine)", &id[..id.len().min(8)]));
+                }
+            }
+            entry.skip = true;
+            return Ok(0);
+        }
+    }
     if entry.deleted || entry.skip || (entry.registered && entry.sig == sig) {
         return Ok(0);
     }
@@ -550,11 +586,6 @@ async fn sync_session(
                 }
                 return Ok(0);
             };
-            let r = recorded.get_or_insert_with(|| crate::native::Recorded::from_pine(&local_sessions(true).unwrap_or_default()));
-            if r.covers(n, &meta) {
-                entry.skip = true; // ran through pn: already synced from ~/.pine
-                return Ok(0);
-            }
             (Some(t), meta, n.agent.to_string(), n.agent)
         }
     };
@@ -638,18 +669,23 @@ async fn sync_once(verbose: bool, all: bool) -> Result<(u64, usize)> {
     let auth = require_auth()?;
     let c = client()?;
     let mut state = load_state();
-    let mut recorded = None; // built only if a native file changed
     let mut total = 0;
     let mut result = Ok(());
     let sessions = local_sessions(all)?;
     let natives = native_sessions(all);
+    let index = crate::native::NativeIndex::new(&natives);
+    // Once: before native-first, natives of pn runs were marked skip. Look again.
+    if !state.native_first {
+        state.sessions.values_mut().for_each(|s| s.skip = false);
+        state.native_first = true;
+    }
     let checked = sessions.len() + natives.len();
     let sources = sessions
         .iter()
         .map(|(id, dir)| (id.as_str(), Source::Pine(dir)))
         .chain(natives.iter().map(|n| (n.id.as_str(), Source::Native(n))));
     for (id, src) in sources {
-        match sync_session(&c, &auth, &mut state, &mut recorded, id, src, verbose).await {
+        match sync_session(&c, &auth, &mut state, &index, id, src, verbose).await {
             Ok(n) => total += n,
             Err(e) => {
                 result = Err(e);
@@ -772,8 +808,21 @@ pub async fn checkpoint(name: String, note: Option<String>, session: Option<Stri
     // Make sure everything up to *now* is uploaded, then freeze those offsets.
     let mut state = load_state();
     let dir = crate::paths::session_dir(&id)?;
+    let mut id = id;
     if dir.is_dir() && !dir.join(".pulled").exists() {
-        sync_session(&c, &auth, &mut state, &mut None, &id, Source::Pine(&dir), true).await?;
+        let natives = crate::native::discover();
+        let index = crate::native::NativeIndex::new(&natives);
+        // A pn run whose conversation Claude Code / Codex saved itself is shared
+        // from that file, so the checkpoint goes on that session.
+        match index.native_copy(&id, &dir).and_then(|pid| natives.iter().find(|n| n.id == pid)) {
+            Some(n) => {
+                id = n.id.clone();
+                sync_session(&c, &auth, &mut state, &index, &id, Source::Native(n), true).await?;
+            }
+            None => {
+                sync_session(&c, &auth, &mut state, &index, &id, Source::Pine(&dir), true).await?;
+            }
+        }
         save_state(&state)?;
     }
     let offsets = state.sessions.get(&id).map(|s| json!(s.files));

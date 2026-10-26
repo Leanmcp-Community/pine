@@ -164,6 +164,35 @@ fn is_side_call(messages: &[Value]) -> bool {
     }
 }
 
+/// Claude Code's start-up quota check: one user message, "quota". Not a conversation.
+fn is_quota_probe(messages: &[Value]) -> bool {
+    let [only] = messages else { return false };
+    let text = match &only["content"] {
+        Value::String(s) => s.clone(),
+        Value::Array(a) => a.iter().filter_map(|b| b["text"].as_str()).collect(),
+        _ => return false,
+    };
+    only["role"] == "user" && text.trim() == "quota"
+}
+
+/// True if every model call in a pn run was the quota check (the run was
+/// opened and closed without a conversation).
+pub fn quota_only(dir: &Path) -> bool {
+    let Ok(traffic) = std::fs::read_to_string(dir.join("traffic.jsonl")) else { return false };
+    let mut calls = traffic
+        .lines()
+        .filter_map(|l| serde_json::from_str::<Value>(l).ok())
+        .filter(|r| r["method"] == "POST" && r["url"].as_str().is_some_and(|u| u.contains("/v1/messages")))
+        .peekable();
+    calls.peek().is_some()
+        && calls.all(|r| {
+            body_text(dir, &r["request"])
+                .and_then(|b| serde_json::from_str::<Value>(&b).ok())
+                .and_then(|req| req["messages"].as_array().map(|m| is_quota_probe(m)))
+                .unwrap_or(false)
+        })
+}
+
 fn reply_from_sse(sse: &str) -> String {
     let mut text = String::new();
     for line in sse.lines() {
@@ -196,6 +225,9 @@ fn claude(dir: &Path) -> Option<Transcript> {
         }
     }
     let (r, side, history, model) = best?;
+    if is_quota_probe(&history) {
+        return None;
+    }
     let at = r["ts_start"].as_str().unwrap_or("");
     let mut messages = anthropic_messages(&history, at, &model);
     if !side {
@@ -371,6 +403,14 @@ mod tests {
         assert_eq!(strip_reminders("hi <system-reminder>x</system-reminder> there"), "hi  there");
         assert!(is_harness("SessionStart:startup hook success"));
         assert!(!is_harness("What is Claude Shannon"));
+    }
+
+    #[test]
+    fn quota_probe_is_not_a_conversation() {
+        assert!(is_quota_probe(&[serde_json::json!({"role": "user", "content": "quota"})]));
+        assert!(is_quota_probe(&[serde_json::json!({"role": "user", "content": [{"type": "text", "text": "quota"}]})]));
+        assert!(!is_quota_probe(&[serde_json::json!({"role": "user", "content": "quota limits?"})]));
+        assert!(!is_quota_probe(&[serde_json::json!({"role": "user", "content": "quota"}), serde_json::json!({"role": "assistant", "content": "ok"})]));
     }
 
     #[test]

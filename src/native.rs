@@ -213,36 +213,83 @@ pub fn read(n: &Native) -> Option<(Transcript, Meta)> {
     }
 }
 
-/// Native sessions that are really `pn` / `pn codex` runs, already synced from
-/// `~/.pine/sessions`: Claude by the session id pn saw, Codex by folder and
-/// start time (within 30 s).
-pub struct Recorded {
-    claude_ids: HashSet<String>,
-    codex: Vec<(String, u64)>,
+/// One session per conversation: when Claude Code or Codex saved a
+/// conversation itself, that file is what we share (it has the whole history,
+/// across every `pn --resume`). A `pn` / `pn codex` run of the same
+/// conversation stays recorded in `~/.pine/sessions` but isn't uploaded.
+pub struct NativeIndex {
+    claude: HashSet<String>,
+    /// Codex rollouts: (created ms, path, Pine id); the folder is read only when needed.
+    codex: Vec<(u64, PathBuf, String)>,
 }
 
-impl Recorded {
-    pub fn from_pine(sessions: &[(String, PathBuf)]) -> Self {
-        let mut r = Recorded { claude_ids: HashSet::new(), codex: vec![] };
-        for (id, dir) in sessions {
-            let Some(meta) = std::fs::read(dir.join("meta.json")).ok().and_then(|b| serde_json::from_slice::<Value>(&b).ok()) else { continue };
-            if let Some(c) = meta["claude_session_id"].as_str() {
-                r.claude_ids.insert(c.to_string());
-            }
-            if meta["target"] == "codex" {
-                let ms = id.parse::<ulid::Ulid>().map(|u| u.timestamp_ms()).unwrap_or(0);
-                r.codex.push((meta["cwd"].as_str().unwrap_or_default().to_string(), ms));
-            }
+impl NativeIndex {
+    pub fn new(natives: &[Native]) -> Self {
+        NativeIndex {
+            claude: natives.iter().filter(|n| n.agent == "claude").map(|n| n.native_id.clone()).collect(),
+            codex: natives.iter().filter(|n| n.agent == "codex").map(|n| (n.created_ms, n.path.clone(), n.id.clone())).collect(),
         }
-        r
     }
 
-    pub fn covers(&self, n: &Native, meta: &Meta) -> bool {
-        match n.agent {
-            "claude" => self.claude_ids.contains(&n.native_id),
-            _ => self.codex.iter().any(|(cwd, ms)| *cwd == meta.cwd && ms.abs_diff(n.created_ms) < 30_000),
+    /// The Pine id of Claude Code's or Codex's own file for the conversation
+    /// the `pn` session `id` in `dir` was on (the latest one, if it moved on).
+    pub fn native_copy(&self, id: &str, dir: &Path) -> Option<String> {
+        let meta = std::fs::read(dir.join("meta.json")).ok().and_then(|b| serde_json::from_slice::<Value>(&b).ok())?;
+        if meta["target"] == "codex" {
+            // Same folder, started within 30 s of the pn run.
+            let ms = id.parse::<ulid::Ulid>().map(|u| u.timestamp_ms()).unwrap_or(0);
+            let cwd = meta["cwd"].as_str().unwrap_or_default();
+            return self
+                .codex
+                .iter()
+                .find(|(created, path, _)| created.abs_diff(ms) < 30_000 && codex_cwd(path).as_deref() == Some(cwd))
+                .map(|(_, _, pine_id)| pine_id.clone());
+        }
+        claude_ids(dir, &meta).iter().rev().find(|c| self.claude.contains(*c)).and_then(|c| ulid_of(c))
+    }
+
+    pub fn has_native_copy(&self, id: &str, dir: &Path) -> bool {
+        self.native_copy(id, dir).is_some()
+    }
+}
+
+/// The folder a Codex rollout ran in (its first line, `session_meta`).
+fn codex_cwd(path: &Path) -> Option<String> {
+    let mut first = String::new();
+    BufReader::new(std::fs::File::open(path).ok()?).read_line(&mut first).ok()?;
+    let v: Value = serde_json::from_str(&first).ok()?;
+    v["payload"]["cwd"].as_str().map(str::to_string)
+}
+
+/// The Claude Code conversations a `pn` run touched. New runs record them in
+/// meta.json as they happen. Runs from older versions only saved the account
+/// id there, so read them once from the captured `x-claude-code-session-id`
+/// headers and remember the answer in meta.json.
+fn claude_ids(dir: &Path, meta: &Value) -> Vec<String> {
+    if let Some(ids) = meta["claude_session_ids"].as_array() {
+        return ids.iter().filter_map(|v| v.as_str().map(str::to_string)).collect();
+    }
+    const HEADER: &str = r#""x-claude-code-session-id",""#;
+    let mut ids: Vec<String> = vec![];
+    if let Ok(f) = std::fs::File::open(dir.join("traffic.jsonl")) {
+        for line in BufReader::new(f).lines().map_while(Result::ok) {
+            let Some(i) = line.find(HEADER) else { continue };
+            let id: String = line[i + HEADER.len()..].chars().take(36).collect();
+            if id.len() == 36 && !ids.contains(&id) {
+                ids.push(id);
+            }
         }
     }
+    // Only finished runs: a live one is still adding conversations (and its
+    // proxy rewrites meta.json anyway).
+    if meta["ended_at"].is_string() {
+        let mut m = meta.clone();
+        m["claude_session_ids"] = Value::from(ids.clone());
+        if let Ok(b) = serde_json::to_vec_pretty(&m) {
+            let _ = std::fs::write(dir.join("meta.json"), b);
+        }
+    }
+    ids
 }
 
 #[cfg(test)]

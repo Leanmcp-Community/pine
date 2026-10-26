@@ -60,10 +60,15 @@ pub struct SessionMeta {
     pub claude_pid: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub claude_exit_code: Option<i32>,
-    /// Claude Code's own session UUID, sniffed from `metadata.user_id` in the
-    /// first Anthropic API request body that contains it. `None` until then.
+    /// The Claude Code conversation this run is on (the latest one seen in
+    /// `x-claude-code-session-id`). `None` until the first API request.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub claude_session_id: Option<String>,
+    /// Every Claude Code conversation this run touched, in order: a resume or
+    /// `/clear` switches to another one. Sync uses these to prefer Claude
+    /// Code's own file for the same conversation.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub claude_session_ids: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub claude_version: Option<String>,
     pub proxy_addr: String,
@@ -209,9 +214,8 @@ pub struct SessionLogger {
     /// Live, in-memory copy of the on-disk `meta.json`. Mutated and rewritten
     /// when fields like `claude_session_id` or `ended_at` become known.
     meta: Mutex<Option<SessionMeta>>,
-    /// Set once we've successfully sniffed claude's session id, so we don't
-    /// re-parse every subsequent request body.
-    claude_session_seen: std::sync::atomic::AtomicBool,
+    /// Claude Code conversation ids already written to meta.json.
+    claude_ids_seen: std::sync::Mutex<std::collections::HashSet<String>>,
 }
 
 impl SessionLogger {
@@ -239,7 +243,7 @@ impl SessionLogger {
             redact,
             session_id,
             meta: Mutex::new(None),
-            claude_session_seen: std::sync::atomic::AtomicBool::new(false),
+            claude_ids_seen: std::sync::Mutex::new(std::collections::HashSet::new()),
         }))
     }
 
@@ -272,44 +276,40 @@ impl SessionLogger {
         Ok(())
     }
 
-    /// Try to extract Claude Code's own session UUID from a request body.
+    /// Record which Claude Code conversation a request belongs to.
     ///
-    /// Claude Code embeds it in `metadata.user_id` on Anthropic API calls,
-    /// formatted roughly as `user_<accounthash>_account__session_<uuid>`.
-    /// We do a cheap once-only scan: parse JSON, walk to `metadata.user_id`,
-    /// then pluck out the first UUID-shaped substring.
-    pub async fn observe_request_body(&self, body: &[u8]) {
-        use std::sync::atomic::Ordering;
-        if self.claude_session_seen.load(Ordering::Relaxed) {
-            return;
-        }
-        if body.is_empty() || body.len() > 2 * 1024 * 1024 {
-            return;
-        }
-        let Ok(v) = serde_json::from_slice::<serde_json::Value>(body) else {
-            return;
-        };
-        let Some(user_id) = v
-            .get("metadata")
-            .and_then(|m| m.get("user_id"))
-            .and_then(|u| u.as_str())
-        else {
-            return;
-        };
-        let Some(uuid) = find_uuid(user_id) else {
-            return;
-        };
-        if self
-            .claude_session_seen
-            .swap(true, Ordering::Relaxed)
-        {
+    /// Claude Code sends it on every API call as `x-claude-code-session-id`
+    /// (and inside `metadata.user_id` as JSON `{"session_id": ...}`). The
+    /// first UUID in `user_id` is the account, not the conversation, so only
+    /// these two are trusted. Each new id is appended to meta.json once.
+    pub async fn observe_request(&self, headers: &http::HeaderMap, body: &[u8]) {
+        let from_header = headers
+            .get("x-claude-code-session-id")
+            .and_then(|v| v.to_str().ok())
+            .and_then(find_uuid);
+        let id = from_header.or_else(|| {
+            if body.is_empty() || body.len() > 2 * 1024 * 1024 {
+                return None;
+            }
+            let v = serde_json::from_slice::<serde_json::Value>(body).ok()?;
+            let user_id = v.get("metadata")?.get("user_id")?.as_str()?;
+            let inner = serde_json::from_str::<serde_json::Value>(user_id).ok()?;
+            find_uuid(inner.get("session_id")?.as_str()?)
+        });
+        let Some(id) = id else { return };
+        if !self.claude_ids_seen.lock().map(|mut s| s.insert(id.clone())).unwrap_or(false) {
             return;
         }
         if let Err(e) = self
-            .update_meta(|m| m.claude_session_id = Some(uuid))
+            .update_meta(|m| {
+                if !m.claude_session_ids.contains(&id) {
+                    m.claude_session_ids.push(id.clone());
+                }
+                m.claude_session_id = Some(id);
+            })
             .await
         {
-            tracing::warn!(error = %e, "updating meta.json with claude_session_id");
+            tracing::warn!(error = %e, "updating meta.json with claude_session_ids");
         }
     }
 
