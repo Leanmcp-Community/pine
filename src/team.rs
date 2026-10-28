@@ -467,7 +467,7 @@ pub(crate) fn now_rfc3339() -> String {
 
 /// A sync log line. In a terminal it clears the in-place "watching" line
 /// first; in a log file (`pn watch`) it gets a UTC timestamp instead.
-fn say(msg: &str) {
+pub(crate) fn say(msg: &str) {
     use std::io::{IsTerminal, Write};
     if std::io::stdout().is_terminal() {
         println!("\r\x1b[K{msg}");
@@ -482,7 +482,7 @@ fn say(msg: &str) {
 /// that never exits. Logged out or paused: it waits and checks again.
 pub async fn watch_loop() -> Result<()> {
     say(&format!("Pine watch started ({}).", crate::PINE_VERSION));
-    let (mut waiting, mut last_err) = (String::new(), String::new());
+    let (mut waiting, mut last_err, mut ws_err) = (String::new(), String::new(), String::new());
     let mut next_update = std::time::Instant::now() + Duration::from_secs(60); // first check a minute after start
     loop {
         if std::time::Instant::now() >= next_update {
@@ -517,6 +517,17 @@ pub async fn watch_loop() -> Result<()> {
                     last_err = e.to_string();
                 }
                 Err(_) => {}
+            }
+            // Beta workspaces (`pn beta add`): upload files that changed.
+            if let Some(auth) = load_auth() {
+                match crate::workspace::tick(&auth).await {
+                    Ok(_) => ws_err.clear(),
+                    Err(e) if e.to_string() != ws_err => {
+                        say(&format!("! workspaces: {e:#}. Retrying."));
+                        ws_err = e.to_string();
+                    }
+                    Err(_) => {}
+                }
             }
         }
         tokio::time::sleep(if why.is_empty() { LIVE_EVERY } else { Duration::from_secs(15) }).await;

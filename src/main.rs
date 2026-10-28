@@ -29,6 +29,7 @@ mod transcript;
 mod resume;
 mod update;
 mod watch;
+mod workspace;
 mod ws;
 
 /// Version string shown by `pine --version`. Composed of the
@@ -444,6 +445,9 @@ fn run(cli: Cli) -> Result<()> {
         Some(Cmd::Handoff { to, session, all }) => handoff::run(&to, session, all),
         Some(Cmd::Beta { cmd }) => match cmd {
             BetaCmd::Hooks { remove } => beta::hooks_cmd(remove),
+            BetaCmd::Add { folder } => runtime()?.block_on(workspace::add(folder)),
+            BetaCmd::Remove { folder } => workspace::remove(folder),
+            BetaCmd::Status => workspace::status(),
             BetaCmd::Statusline => beta::statusline(),
             BetaCmd::Hook { kind } => beta::hook(&kind),
         },
@@ -1823,6 +1827,12 @@ async fn supervise_child(child: &mut tokio::process::Child, _pid: Option<u32>) -
 #[derive(Debug, Subcommand)]
 enum BetaCmd {
     /// Show teammates' live work in Claude Code (status line + hooks). --remove to undo.
+    /// Mirror this repo folder to Pine (teammates browse it and see a live feed of changes).
+    Add { folder: Option<String> },
+    /// Stop mirroring a folder (what's on Pine stays).
+    Remove { folder: Option<String> },
+    /// Folders being mirrored.
+    Status,
     Hooks {
         #[arg(long, default_value_t = false)]
         remove: bool,
