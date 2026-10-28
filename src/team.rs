@@ -58,7 +58,7 @@ fn root() -> Result<PathBuf> {
     crate::paths::root()
 }
 
-fn api_base(auth: Option<&Auth>) -> String {
+pub(crate) fn api_base(auth: Option<&Auth>) -> String {
     std::env::var("PINE_API")
         .ok()
         .or_else(|| auth.map(|a| a.api.clone()))
@@ -410,7 +410,7 @@ pub(crate) fn git(cwd: &str, args: &[&str]) -> Option<String> {
 }
 
 /// "owner/name" from a GitHub remote (https or ssh form).
-fn github_repo(remote: &str) -> Option<String> {
+pub(crate) fn github_repo(remote: &str) -> Option<String> {
     let rest = remote
         .strip_prefix("git@github.com:")
         .or_else(|| remote.strip_prefix("ssh://git@github.com/"))

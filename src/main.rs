@@ -11,6 +11,7 @@ use tracing::warn;
 use tracing_subscriber::EnvFilter;
 use ulid::Ulid;
 
+mod beta;
 mod banner;
 mod ca;
 mod handoff;
@@ -211,6 +212,11 @@ enum Cmd {
         #[arg(long = "default", hide = true, default_value_t = false)]
         by_default: bool,
     },
+    /// Try things before they're ready. `pn beta hooks`: teammates' live work inside Claude Code.
+    Beta {
+        #[command(subcommand)]
+        cmd: BetaCmd,
+    },
     /// Continue a conversation in the other agent: `pn handoff claude` picks a
     /// Codex session in this folder and adds it to Claude Code (`claude --resume`).
     Handoff {
@@ -364,6 +370,13 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
     init_tracing();
     install_default_crypto_provider()?;
+    // The status line and hooks run many times a minute inside Claude Code: no telemetry, no waiting.
+    if let Some(Cmd::Beta { cmd: BetaCmd::Statusline }) = &cli.command {
+        return beta::statusline();
+    }
+    if let Some(Cmd::Beta { cmd: BetaCmd::Hook { kind } }) = &cli.command {
+        return beta::hook(kind);
+    }
     let (event, props) = usage_event(&cli);
     let pending = telemetry::send(event, props);
     let result = run(cli);
@@ -389,6 +402,7 @@ fn usage_event(cli: &Cli) -> (&'static str, serde_json::Value) {
         Some(Cmd::Checkpoints) => ("checkpoints", json!({})),
         Some(Cmd::Pull { into, .. }) => ("pull", json!({ "into": into })),
         Some(Cmd::Open { .. }) => ("open", json!({})),
+        Some(Cmd::Beta { cmd }) => ("beta", json!({ "cmd": format!("{cmd:?}").split_whitespace().next().unwrap_or("").to_lowercase() })),
         Some(Cmd::Handoff { to, all, session }) => ("handoff", json!({ "to": to, "all": all, "picked": session.is_some() })),
         Some(Cmd::Watch { action, install, uninstall, by_default }) => (
             "watch",
@@ -428,6 +442,11 @@ fn run(cli: Cli) -> Result<()> {
         Some(Cmd::Pull { target, into }) => runtime()?.block_on(team::pull(target, into)),
         Some(Cmd::Open { id }) => team::open(id),
         Some(Cmd::Handoff { to, session, all }) => handoff::run(&to, session, all),
+        Some(Cmd::Beta { cmd }) => match cmd {
+            BetaCmd::Hooks { remove } => beta::hooks_cmd(remove),
+            BetaCmd::Statusline => beta::statusline(),
+            BetaCmd::Hook { kind } => beta::hook(&kind),
+        },
         Some(Cmd::Watch { action, install, uninstall, by_default }) => match (action.as_deref(), install, uninstall) {
             (_, true, _) => watch::install(by_default),
             (_, _, true) => watch::uninstall(),
@@ -1799,4 +1818,19 @@ async fn supervise_child(child: &mut tokio::process::Child, _pid: Option<u32>) -
             }
         }
     }
+}
+
+#[derive(Debug, Subcommand)]
+enum BetaCmd {
+    /// Show teammates' live work in Claude Code (status line + hooks). --remove to undo.
+    Hooks {
+        #[arg(long, default_value_t = false)]
+        remove: bool,
+    },
+    /// (Claude Code runs this) the status line.
+    #[command(hide = true)]
+    Statusline,
+    /// (Claude Code runs this) a hook: session-start, prompt or edit.
+    #[command(hide = true)]
+    Hook { kind: String },
 }

@@ -36,7 +36,7 @@ pub struct Meta {
 }
 
 /// "8afb629b-22c1-…" → the same 128 bits as a ULID.
-fn ulid_of(uuid: &str) -> Option<String> {
+pub(crate) fn ulid_of(uuid: &str) -> Option<String> {
     let hex: String = uuid.chars().filter(|c| *c != '-').collect();
     (hex.len() == 32).then(|| u128::from_str_radix(&hex, 16).ok()).flatten().map(|n| ulid::Ulid(n).to_string())
 }
